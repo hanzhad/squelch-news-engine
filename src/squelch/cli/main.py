@@ -198,11 +198,17 @@ def digest(
         log.error("DISCORD_WEBHOOK_URL is not set")
         raise typer.Exit(1)
 
-    from ..llm.digest import build_digest
+    from ..llm.digest import DigestError, build_digest
     from ..publishers.discord import post_digest
 
-    with _store(settings) as store:
-        result = build_digest(settings, config, store, days=days)
+    try:
+        with _store(settings) as store:
+            result = build_digest(settings, config, store, days=days)
+    except DigestError as exc:
+        # Distinct from a quiet week on purpose: this one has to go red, or a
+        # digest that silently never arrives looks exactly like a quiet week.
+        log.error("could not build the digest: %s", exc)
+        raise typer.Exit(1) from exc
 
     if result is None:
         # A quiet week is a normal outcome, not a failed run.

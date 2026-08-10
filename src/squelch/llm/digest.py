@@ -26,13 +26,24 @@ log = get_logger(__name__)
 MAX_DIGEST_ARTICLES = 40
 
 
+class DigestError(RuntimeError):
+    """The digest could not be written — as opposed to there being nothing to write."""
+
+
 def build_digest(
     settings: Settings,
     config: Config,
     store: IssueStore,
     days: int = 7,
 ) -> Digest | None:
-    """Summarise the last ``days`` of published articles, or None if there were none."""
+    """Summarise the last ``days`` of published articles.
+
+    Returns None only when there was genuinely nothing to summarise — a quiet
+    week is a normal outcome. A digest that could not be *written* raises
+    instead: those two look identical from the outside and must not, or a
+    rate-limited run reports "nothing published" on a week that published
+    plenty, and reports it in green.
+    """
     since = datetime.now(UTC) - timedelta(days=days)
     issues = store.list_published_since(since)
     if not issues:
@@ -49,8 +60,8 @@ def build_digest(
         prompts.digest_prompt(config, days, ranked), Digest, prompts.system("digest")
     )
     if digest is None:
-        log.error("digest generation failed")
-        return None
+        # GeminiClient has already retried and logged why.
+        raise DigestError(f"{model} did not return a digest for the last {days} days")
 
     digest = digest.model_copy(update={"highlights": _verified_highlights(digest, ranked)})
     log.info("digest ready: %d trends, %d highlights", len(digest.trends), len(digest.highlights))
