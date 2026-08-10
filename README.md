@@ -236,10 +236,11 @@ An honest list. These are not bugs about to be fixed — they follow from the ar
   source silent for a very long time can have its old entries pushed out by other sources — and
   then a stale article comes back as new. In-flight issues are checked separately, so only
   articles already published or rejected can resurface this way.
-- **The throughput ceiling is the free Gemini tier.** It — not GitHub, not the sources —
-  determines how many articles a day actually clear the filter: one call per article plus a
-  pause between calls (`LLM_DELAY_SECONDS`, 5 seconds by default). To go faster, buy a key or
-  pick a cheaper model; do not run cron more often.
+- **The batch caps only bind while catching up.** A first run against a fresh repository sees
+  every source's whole front page at once — a few dozen articles — and drains it over the next
+  few ticks. In steady state a source publishes on the order of one article a day, so the caps
+  never come near binding and most filter runs find nothing to do. The free Gemini tier is the
+  ceiling that would bite first if that changed, at one call per article.
 - **GitHub throttles bulk content creation** separately from the 5000-requests-per-hour budget,
   without warning and with a 403. That is why a run creates at most `SCRAPE_MAX_NEW_ISSUES`
   issues and defers the rest to the next tick on purpose.
