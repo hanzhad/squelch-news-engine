@@ -159,7 +159,7 @@ Everything you would sit down to change lives in `config/`, one file per thing:
 
 | File | What it holds |
 | --- | --- |
-| `feed.yaml` | The name of the feed, `focus`, the allowed `topics`, text limits |
+| `feed.yaml` | The name of the feed, `focus`, the allowed `topics`, how far back news reaches, text limits |
 | `sources.yaml` | The source catalogue and nothing else |
 | `delivery.yaml` | Which channels an article must reach before it counts as published |
 | `models.yaml` | Which Gemini model runs each stage |
@@ -232,6 +232,17 @@ This scraper is deliberately primitive: a listing page plus a link selector. Pag
 and infinite scroll do not fit here — those call for a purpose-built scraper.
 
 ### The rest
+
+`max_age_days` is how far back an article may be dated and still count as news. Listing pages
+keep months of posts on them, so without it every source opens its whole back catalogue on the
+day it is enabled. Articles no page gives a date for are let through — unknown is not old.
+Raise it when adding a source whose archive is worth importing on purpose.
+
+Where that date comes from is deliberately conservative. The article page is asked first, and
+only for a date it states outright; a page that states none is left undated rather than guessed
+at. Failing that, the date printed next to the link on the listing page is used, read from the
+smallest block that belongs to that article alone — search any wider and every article inherits
+its neighbour's date. Failing both, the article shows the day it was found.
 
 `max_body_chars` is how far the article text is truncated before it goes to the LLM. More
 characters mean slower and more expensive calls; 8000 is usually enough.
