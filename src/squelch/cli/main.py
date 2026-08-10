@@ -45,6 +45,7 @@ class SourceType(StrEnum):
     RSS = "rss"
     HTML = "html"
     WEB = "web"
+    GITHUB = "github"
 
 
 # -- shared prologue ---------------------------------------------------------
@@ -223,7 +224,7 @@ def close_delivered() -> None:
     config = _config()
 
     with _store(settings) as store:
-        closed = store.close_delivered(config.required_channels)
+        closed = store.close_delivered(config.ready_channels)
     log.info("close done: %d article(s) published", len(closed))
 
 

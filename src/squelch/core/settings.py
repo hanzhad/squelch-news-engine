@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     discord_rejected_webhook_url: str = Field(
         default="", validation_alias="DISCORD_REJECTED_WEBHOOK_URL"
     )
+    # The channel the skills rubric is routed to (see `only`/`skip` in
+    # delivery.yaml). No fallback either: routing exists precisely so these
+    # posts stay out of the feed channel.
+    discord_skills_webhook_url: str = Field(
+        default="", validation_alias="DISCORD_SKILLS_WEBHOOK_URL"
+    )
 
     # --- throughput --------------------------------------------------------
     # GitHub throttles *content creation* (issues, comments) far below the

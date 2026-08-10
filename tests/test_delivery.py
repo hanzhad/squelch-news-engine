@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from squelch.core.config import Channel, Config
 from squelch.core.models import Status
@@ -155,12 +156,16 @@ def test_recording_keeps_the_summary_and_the_original_text(store: IssueStore) ->
 # -- closing -----------------------------------------------------------------
 
 
+def channels(*ids: str) -> list[Channel]:
+    return [Channel(id=channel_id) for channel_id in ids]
+
+
 def test_an_article_closes_once_every_required_channel_has_it(store: IssueStore) -> None:
     issue = store.list_pending("site")[0]
     for channel in ("site", "rss", "discord"):
         store.record_delivery(issue, channel)
 
-    assert store.close_delivered(["site", "rss", "discord"]) == [1]
+    assert store.close_delivered(channels("site", "rss", "discord")) == [1]
     closed = store.client.issues[1]
     assert closed["state"] == "closed"
     assert closed["state_reason"] == "completed"
@@ -168,14 +173,14 @@ def test_an_article_closes_once_every_required_channel_has_it(store: IssueStore)
 
 
 def test_an_article_stays_open_while_a_channel_still_owes_it(store: IssueStore) -> None:
-    assert store.close_delivered(["site", "rss", "discord"]) == []
+    assert store.close_delivered(channels("site", "rss", "discord")) == []
     assert store.client.issues[2]["state"] == "open"
 
 
 def test_disabling_a_channel_releases_what_was_waiting_on_it(store: IssueStore) -> None:
     # Issue 2 has only Discord. Nobody re-runs the channels; the closing pass
     # re-derives the answer from the labels, so the config change is enough.
-    assert store.close_delivered(["discord"]) == [2]
+    assert store.close_delivered(channels("discord")) == [2]
 
 
 def test_no_enabled_channels_closes_nothing(store: IssueStore) -> None:
@@ -183,6 +188,42 @@ def test_no_enabled_channels_closes_nothing(store: IssueStore) -> None:
     # into a published state without anything having been delivered.
     assert store.close_delivered([]) == []
     assert store.client.issues[1]["state"] == "open"
+
+
+def test_a_channel_that_skips_an_article_does_not_hold_it_open() -> None:
+    # A skills article never reaches the main Discord channel by design, so
+    # waiting for sent:discord would strand it open forever.
+    store = IssueStore(
+        FakeClient(
+            [
+                make_issue(
+                    3,
+                    labels=[
+                        Status.READY.value,
+                        "topic:claude-skills",
+                        f"{SENT_PREFIX}site",
+                        f"{SENT_PREFIX}discord-skills",
+                    ],
+                )
+            ]
+        )
+    )
+    routed = [
+        Channel(id="site"),
+        Channel(id="discord", skip=["topic:claude-skills"]),
+        Channel(id="discord-skills", only=["topic:claude-skills"]),
+    ]
+
+    assert store.close_delivered(routed) == [3]
+
+
+def test_an_article_routed_nowhere_stays_open() -> None:
+    # A config hole, not a publication: closing it would mark as published
+    # something no reader ever saw.
+    store = IssueStore(FakeClient([make_issue(4, labels=[Status.READY.value])]))
+
+    assert store.close_delivered([Channel(id="discord", only=["topic:claude-skills"])]) == []
+    assert store.client.issues[4]["state"] == "open"
 
 
 def test_closing_keeps_the_source_and_topic_labels() -> None:
@@ -202,7 +243,7 @@ def test_closing_keeps_the_source_and_topic_labels() -> None:
         )
     )
 
-    store.close_delivered(["site"])
+    store.close_delivered(channels("site"))
 
     names = {label["name"] for label in store.client.issues[5]["labels"]}
     assert {"source:anthropic", "topic:models", f"{SENT_PREFIX}site"} <= names
@@ -270,6 +311,25 @@ def test_only_enabled_channels_are_required(config: Config) -> None:
     )
 
     assert config.required_channels == ["site"]
+
+
+def test_routing_is_by_label() -> None:
+    skills = Channel(id="discord-skills", only=["topic:claude-skills", "source:claude-skills"])
+    feed = Channel(id="discord", skip=["topic:claude-skills", "source:claude-skills"])
+
+    assert skills.wants({Status.READY.value, "topic:claude-skills"})
+    assert skills.wants({"source:claude-skills"})
+    assert not skills.wants({Status.READY.value, "topic:models"})
+    assert not feed.wants({"topic:claude-skills"})
+    assert feed.wants({Status.READY.value, "topic:models"})
+    # A channel that says nothing about routing wants everything.
+    assert Channel(id="site").wants({"topic:claude-skills"})
+
+
+def test_a_channel_cannot_both_only_and_skip() -> None:
+    # Their combined meaning would be ambiguous, so it is refused outright.
+    with pytest.raises(ValidationError, match="ambiguous"):
+        Channel(id="x", only=["topic:a"], skip=["topic:b"])
 
 
 def test_every_channel_gets_a_label_even_when_disabled(config: Config) -> None:

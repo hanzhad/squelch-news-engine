@@ -1,9 +1,10 @@
 # The source catalogue. Ids become `source:<id>` labels, so keep them ASCII
 # and stable — renaming one makes its old issues look like a different source.
 #
-# type: rss   a feed URL
-# type: html  a server-rendered listing page plus link_selector
-# type: web   a listing page that needs a real browser (Playwright extra)
+# type: rss     a feed URL
+# type: html    a server-rendered listing page plus link_selector
+# type: web     a listing page that needs a real browser (Playwright extra)
+# type: github  a repository search page; its q= runs against the API
 #
 # Editorial policy lives in feed.yaml; which model reads them, in models.yaml.
 
@@ -107,6 +108,21 @@ sources:
     link_selector: 'a[href^="/news/"]'
     max_items: 5
     enabled: false
+
+  # -- ecosystem: skill and plugin repositories -----------------------------
+
+  # Skill collections for Claude Code are announced nowhere and hyped
+  # everywhere (TikTok included); the only reliable signal is the repository
+  # appearing and gathering stars. The q= of this search URL is what the API
+  # runs — the scraper bounds it to repositories created within max_age_days
+  # and sorts by stars, so what surfaces is "the new repos people actually
+  # flocked to". The page itself stays clickable for humans. The article body
+  # is the repo's own README and SKILL.md files plus hard numbers; nothing
+  # from the repository is ever executed.
+  - id: claude-skills
+    type: github
+    url: https://github.com/search?q=claude+skills+in%3Aname%2Cdescription&type=repositories
+    max_items: 5
 
   # -- independent writing and press ---------------------------------------
 

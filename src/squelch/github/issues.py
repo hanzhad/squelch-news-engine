@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from ..core.config import Channel
 from ..core.log import get_logger
 from ..core.models import ALL_STATUSES, Classification, RawArticle, Status, Summary
 from ..core.urls import canonicalize, url_uid
@@ -548,8 +549,8 @@ class IssueStore:
         )
         log.info("#%d -> rescued by %d reaction(s)", issue.number, approvals)
 
-    def close_delivered(self, required: list[str]) -> list[int]:
-        """Close every ready article that all required channels have delivered.
+    def close_delivered(self, channels: list[Channel]) -> list[int]:
+        """Close every ready article that all its routed channels have delivered.
 
         Deliberately not done by whichever channel happens to finish last. That
         channel could die between its own label and the close, and then nobody
@@ -557,8 +558,12 @@ class IssueStore:
         queue contains it. A separate pass owns the transition, re-derives the
         answer from the labels every time, and therefore also picks up articles
         that only qualified because a channel was switched off in config.
+
+        Which channels count is decided per article: a channel whose routing
+        does not want an article must not hold it open waiting for a delivery
+        that will never come.
         """
-        if not required:
+        if not channels:
             # Otherwise "everyone delivered" is vacuously true and the whole
             # queue closes without going anywhere.
             log.warning("no channels are enabled, leaving ready articles open")
@@ -566,6 +571,12 @@ class IssueStore:
 
         closed: list[int] = []
         for issue in self.list_by_status(Status.READY):
+            required = [c.id for c in channels if c.wants(set(issue.labels))]
+            if not required:
+                # Routed nowhere at all — a config hole, not a publication.
+                # Closing it would mark as published something no reader saw.
+                log.warning("#%d matches no enabled channel, leaving it open", issue.number)
+                continue
             missing = set(required) - issue.delivered_to
             if missing:
                 log.debug("#%d still owes %s", issue.number, ", ".join(sorted(missing)))

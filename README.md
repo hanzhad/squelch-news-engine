@@ -141,6 +141,9 @@ usual one is spent. Blank — which is what the scheduled run passes — leaves
      the classifier rejected (see below). Deliberately no fallback: rejects never land in
      the feed channel. Unset, disable the `discord-rejected` channel in
      `config/delivery.yaml` or the `publish-rejected` runs go red.
+   - `DISCORD_SKILLS_WEBHOOK_URL` — optional. A webhook for the skills rubric — articles
+     routed by label to their own channel (see below). No fallback either; unset, disable
+     the `discord-skills` channel in `config/delivery.yaml` or `publish` runs go red.
 
    `GITHUB_TOKEN` and `GITHUB_REPOSITORY` are supplied by Actions itself; do not create them.
 
@@ -240,6 +243,52 @@ Raise `lead` if too much of the channel is shouting. Set `standard: 0` to switch
 tier off and give everything equal weight. If the classifier ever drifts and starts handing out
 sevens to everything, the tiers stop meaning anything — the distribution above is worth a
 glance now and then.
+
+### Routing a rubric to its own channel
+
+By default every enabled channel gets every article. A channel can instead declare, by label,
+what it wants:
+
+```yaml
+  - id: discord
+    skip: ["topic:claude-skills", "source:claude-skills"]   # everything except these
+  - id: discord-skills
+    only: ["topic:claude-skills", "source:claude-skills"]   # nothing but these
+```
+
+This is sectioning, not filtering — every article still goes out, just to the channel whose
+readers asked for it. The closing pass counts, per article, exactly the channels it was routed
+to, so a channel that skips an article never holds it open waiting for a delivery that will
+never come. Both the topic and the source label are listed on purpose: the source is set
+deterministically at scrape time, the topic is the classifier's tag — either is enough to
+reroute, so an article the LLM forgot to tag still lands in the right place. Each Discord
+channel posts through its own webhook (`DISCORD_SKILLS_WEBHOOK_URL` for the one above), and an
+enabled channel with no webhook fails the run rather than borrowing the feed's — routing exists
+precisely so posts do not end up in the wrong place. The site and the RSS feed stay unrouted:
+they are the archive, and the archive holds everything.
+
+### Hunting skill repositories: the `github` source
+
+Skill collections for coding agents are announced nowhere and hyped everywhere — TikTok
+included — and the only reliable signal is the repository itself appearing and gathering stars.
+The `github` source type turns a GitHub search into articles:
+
+```yaml
+  - id: claude-skills
+    type: github
+    url: https://github.com/search?q=claude+skills+in%3Aname%2Cdescription&type=repositories
+    max_items: 5
+```
+
+The URL is the human-clickable search page; the scraper runs its `q=` against the API, bounded
+to repositories created within `max_age_days` and sorted by stars — so what surfaces each run
+is "the new repositories people actually flocked to". The article body is what the repository
+says about itself, hard facts first: stars, forks, dates, file counts, how many `SKILL.md`
+files and shell scripts it contains — then the README and excerpts of the skills themselves,
+which are natural-language descriptions by design. That is exactly the shape the classifier
+and summariser already consume, so no agent and no extra Gemini budget is involved, and
+nothing from the repository is ever executed: this pipeline reads, it does not audit. Tune the
+search by editing the URL; the empty-shell repos are for `focus` to filter, as always.
 
 ### The rejected channel, and voting an article back
 

@@ -70,9 +70,15 @@ WEIGHT_COLORS = {
     Weight.BRIEF: 0x4A4A47,
 }
 
-# Must match the channel id in config/delivery.yaml — that is what ties this
-# module to the sent:discord label and to the count that closes an issue.
+# Must match the channel ids in config/delivery.yaml — that is what ties this
+# module to the sent:* labels and to the count that closes an issue. The
+# config decides which channels exist and what each one wants; which webhook
+# each posts through is a credential, so it stays in the environment, one env
+# var per channel.
 CHANNEL = "discord"
+# The rubric channel articles are routed to by label (see `only`/`skip` in
+# delivery.yaml) — Claude-skills repositories, kept out of the main feed.
+SKILLS_CHANNEL = "discord-skills"
 # The window onto what the classifier threw away. A channel of its own in the
 # same server, so the feed stays clean; consumes status:rejected and never
 # takes part in closing an issue.
@@ -496,31 +502,60 @@ def _deliver(
     return posted, relabelled
 
 
+def _ready_webhooks(settings: Settings) -> dict[str, tuple[str, str]]:
+    """Channel id -> (webhook url, env var that should hold it)."""
+    return {
+        CHANNEL: (settings.discord_webhook_url, "DISCORD_WEBHOOK_URL"),
+        SKILLS_CHANNEL: (settings.discord_skills_webhook_url, "DISCORD_SKILLS_WEBHOOK_URL"),
+    }
+
+
 def publish_ready(settings: Settings, config: Config, store: IssueStore) -> int:
-    """Post ready articles Discord has not seen yet and mark them delivered.
+    """Post ready articles each Discord channel wants and mark them delivered.
 
-    Returns the number of messages actually sent. Whether the article is now
-    finished with — that is, out on every channel — is not this stage's
-    question.
+    Returns the number of messages actually sent. Whether an article is now
+    finished with — that is, out on every channel it was routed to — is not
+    this stage's question. An enabled channel with no webhook fails the run
+    rather than silently borrowing another channel's: routing exists precisely
+    so posts do not end up in the wrong place.
     """
-    issues = store.list_pending(CHANNEL, limit=settings.publish_batch_size)
-    if not issues:
-        log.info("nothing to publish")
-        return 0
+    webhooks = _ready_webhooks(settings)
+    total = 0
+    for channel in config.ready_channels:
+        if channel.id not in webhooks:
+            # The site and the feed deliver through pages.yml, not through us.
+            continue
+        url, env_name = webhooks[channel.id]
+        if not url:
+            raise DiscordError(f"{env_name} is not set")
 
-    emphasis = config.channel(CHANNEL).emphasis
-    with _Webhook(settings) as webhook:
-        posted, relabelled = _deliver(
-            webhook,
-            store,
-            issues,
-            CHANNEL,
-            lambda issue: _issue_embed(issue, emphasis),
-            settings.publish_delay_seconds,
+        pending = [
+            issue
+            for issue in store.list_pending(channel.id)
+            if channel.wants(set(issue.labels))
+        ][: settings.publish_batch_size]
+        if not pending:
+            log.info("nothing to publish for %s", channel.id)
+            continue
+
+        emphasis = channel.emphasis
+        with _Webhook(settings, url) as webhook:
+            posted, relabelled = _deliver(
+                webhook,
+                store,
+                pending,
+                channel.id,
+                lambda issue, e=emphasis: _issue_embed(issue, e),
+                settings.publish_delay_seconds,
+            )
+        log.info(
+            "%s: published %d issue(s), relabelled %d already posted",
+            channel.id,
+            posted,
+            relabelled,
         )
-
-    log.info("published %d issue(s), relabelled %d already posted", posted, relabelled)
-    return posted
+        total += posted
+    return total
 
 
 def publish_rejected(settings: Settings, config: Config, store: IssueStore) -> int:

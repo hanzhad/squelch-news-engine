@@ -22,9 +22,13 @@ channels:
   # anything without a link, so "on the page" and "in the feed" genuinely differ.
   - id: rss
     enabled: true
-  # The community chat channel.
+  # The community chat channel. Skill-collection repositories are routed to
+  # their own channel below, so they are skipped here — by label, which is why
+  # both the topic (the classifier's tag) and the source (set at scrape time)
+  # are listed: either one is enough to reroute an article.
   - id: discord
     enabled: true
+    skip: ["topic:claude-skills", "source:claude-skills"]
     # How much of the channel an article gets, by the score the classifier gave
     # it. Only Discord reads this: a chat channel is skimmed while it scrolls
     # past, so weight is the only way to say "this one matters". The site and
@@ -40,6 +44,15 @@ channels:
     emphasis:
       lead: 7
       standard: 4
+  # The skills rubric: repositories of Claude Code skills and plugins that are
+  # gathering stars, posted to a channel of their own so the hype never
+  # competes with the news. Routing is by label — `only` here mirrors the
+  # `skip` above, and the closing pass counts for each article exactly the
+  # channels it was routed to. Needs the DISCORD_SKILLS_WEBHOOK_URL secret.
+  - id: discord-skills
+    enabled: true
+    only: ["topic:claude-skills", "source:claude-skills"]
+
   # The community window onto what the classifier threw away, in its own
   # channel of the same server. Consumes status:rejected instead of ready, so
   # it never takes part in the count that closes an issue — rejections are

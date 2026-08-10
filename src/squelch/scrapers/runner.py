@@ -12,12 +12,17 @@ from ..core.throttle import paced
 from ..github.client import GitHubError
 from ..github.issues import IssueStore
 from ..github.ledger import IssueLedger, NullLedger
-from . import html, rss, sites, web
+from . import github_repos, html, rss, sites, web
 from .extract import new_http_client
 
 log = get_logger(__name__)
 
-SCRAPERS = {"rss": rss.scrape, "html": html.scrape, "web": web.scrape}
+SCRAPERS = {
+    "rss": rss.scrape,
+    "html": html.scrape,
+    "web": web.scrape,
+    "github": github_repos.scrape,
+}
 
 
 def collect(config: Config, settings: Settings, only_type: str | None = None) -> list[RawArticle]:

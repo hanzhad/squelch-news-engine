@@ -9,7 +9,7 @@ GitHub Actions is the scheduler. Python 3.12+, src-layout, package `squelch`.
 src/squelch/
   core/        models, settings, config loader, URL canonicalization, dedup ledger, logging
   github/      REST client, issue CRUD + body render/parse, label bootstrap
-  scrapers/    rss, web (Playwright), text extraction, orchestration
+  scrapers/    rss, web (Playwright), github repo search, text extraction, orchestration
   llm/         Gemini calls: classify, summarize, weekly digest
   publishers/  Discord webhook
   site/        static archive rendering (templates live in top-level site/templates/)
@@ -41,6 +41,13 @@ so counting it would strand every ready article open. The way back is the rescue
 (`squelch rescue`): enough 👍 reactions on a rejected issue reopen it as `status:2-relevant` —
 relevant, not raw, because re-classifying the same text would reject it again; a vote is a
 human override, exactly like flipping the label by hand.
+
+Channels can also route by label (`only:` / `skip:` in `delivery.yaml`, matched via
+`Channel.wants`) — that is how the skills rubric gets its own Discord channel. Routing is
+sectioning, never filtering: every article must match some enabled channel, `close_delivered`
+counts per article exactly the channels that want it, and an article routed nowhere is left
+open with a warning rather than closed unseen. Each Discord channel has its own webhook env
+var and deliberately no fallback to another channel's.
 
 The classifier's `score` decides how much room an article gets in Discord, through `emphasis`
 thresholds in `delivery.yaml` — `_weight` in `publishers/discord.py` maps it to a lead, a
