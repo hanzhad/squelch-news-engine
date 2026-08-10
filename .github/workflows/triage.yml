@@ -1,0 +1,41 @@
+name: triage
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  external:
+    # Only issues opened from outside the maintainer team. OWNER, MEMBER and
+    # COLLABORATOR are the people with write access; CONTRIBUTOR merely means a
+    # merged pull request, which is not the same trust.
+    if: >-
+      ${{ !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+      github.event.issue.author_association) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # The status label goes before the close, and that order is the point.
+      # Every stage lists issues by label in state "all", so a closed issue that
+      # kept status:1-raw would still be picked up and sent to the model. Taking
+      # the label off is what actually removes it from the pipeline; closing is
+      # only what a person sees.
+      - name: Take it out of the pipeline
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh issue edit "$ISSUE" --repo "$REPO" --remove-label "status:1-raw" || true
+          gh issue comment "$ISSUE" --repo "$REPO" --body \
+            "Thanks for the suggestion. Submissions from outside the maintainer
+            team are paused while the pipeline settles — issues are its database,
+            so anything opened here goes straight into the automated queue.
+
+            Please post the link in [Discussions](https://github.com/${REPO}/discussions)
+            instead. Nothing is lost: this is a pause, not a policy."
+          gh issue close "$ISSUE" --repo "$REPO" --reason "not planned"

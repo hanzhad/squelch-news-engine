@@ -8,6 +8,12 @@ body:
   - type: markdown
     attributes:
       value: |
+        **Currently limited to the maintainer team.** Issues are the pipeline's
+        database, so anything opened here goes straight into the automated
+        queue — and until that queue has settled, submissions from outside are
+        closed automatically with a pointer to Discussions. A pause, not a
+        policy.
+
         Suggestions go through the same automated filter as scraped articles.
         It looks for substantive news with concrete detail and rejects
         speculation, opinion pieces and press releases — so a good link is
