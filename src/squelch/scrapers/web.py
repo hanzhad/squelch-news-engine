@@ -15,7 +15,7 @@ from urllib.parse import urljoin
 from ..core.config import Config, Source
 from ..core.log import get_logger
 from ..core.models import RawArticle
-from .extract import USER_AGENT, extract_from_html
+from .extract import USER_AGENT, extract_from_html, social_image
 
 log = get_logger(__name__)
 
@@ -102,6 +102,7 @@ def scrape(source: Source, config: Config, client: object = None) -> list[RawArt
                         url=url,
                         source=source.id,
                         body=body[: config.max_body_chars],
+                        image=social_image(page_html, url),
                     )
                 )
             except ValueError as exc:

@@ -10,7 +10,7 @@ import pytest
 
 from squelch.core.config import Config, Source
 from squelch.scrapers import rss
-from squelch.scrapers.extract import strip_html
+from squelch.scrapers.extract import Extracted, strip_html
 
 
 class FakeResponse:
@@ -206,7 +206,9 @@ def test_full_text_replaces_the_feed_summary_when_it_is_richer(
     make_source: Callable[..., Source],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(rss, "fetch_full_text", lambda client, url: "Full article text. " * 20)
+    monkeypatch.setattr(
+        rss, "fetch_article", lambda client, url: Extracted("Full article text. " * 20)
+    )
 
     articles = rss.scrape(make_source(fetch_full_text=True), config, rss_client)
 
@@ -220,7 +222,7 @@ def test_the_feed_summary_is_kept_when_full_text_extraction_comes_back_thin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Paywalls and consent walls routinely yield a few useless words.
-    monkeypatch.setattr(rss, "fetch_full_text", lambda client, url: "Subscribe")
+    monkeypatch.setattr(rss, "fetch_article", lambda client, url: Extracted("Subscribe"))
 
     articles = rss.scrape(make_source(fetch_full_text=True), config, rss_client)
 

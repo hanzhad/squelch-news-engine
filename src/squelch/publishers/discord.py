@@ -31,6 +31,7 @@ log = get_logger(__name__)
 TITLE_LIMIT = 256
 DESCRIPTION_LIMIT = 4096
 FOOTER_LIMIT = 2048
+AUTHOR_LIMIT = 256
 FIELD_NAME_LIMIT = 256
 FIELD_VALUE_LIMIT = 1024
 MAX_FIELDS = 25
@@ -246,7 +247,13 @@ def _timestamp(value: Any) -> str | None:
 
 
 def _issue_embed(issue: IssueRecord) -> dict[str, Any]:
-    """Render one article as a single embed."""
+    """Render one article as a single embed.
+
+    Read top to bottom the way a person scans a feed: who published it, what
+    they said, what it is about, and only then the bookkeeping. The source is
+    the author line rather than a word buried in the footer, because "is this
+    from a lab or from a blog" is the first thing anyone wants to know.
+    """
     # Issues opened by hand never went through the LLM, so they have no summary;
     # the head of the article itself is a better placeholder than nothing.
     body = issue.summary or issue.text
@@ -260,29 +267,31 @@ def _issue_embed(issue: IssueRecord) -> dict[str, Any]:
     }
     if issue.url:
         embed["url"] = issue.url
+    if issue.source:
+        embed["author"] = {"name": _trim(issue.source, AUTHOR_LIMIT)}
+    if issue.image:
+        # The picture the publisher chose for link previews. Discord fetches it
+        # itself, so a dead link costs a blank space, not a failed message.
+        embed["image"] = {"url": issue.image}
 
     footer = ["squelch"]
-    if issue.source:
-        footer.append(issue.source)
     if isinstance(score, int | float):
         footer.append(f"score {int(score)}/10")
     embed["footer"] = {"text": _trim(" · ".join(footer), FOOTER_LIMIT)}
 
-    fields: list[dict[str, Any]] = []
-    if tags:
-        fields.append(
-            {"name": "Tags", "value": _trim(", ".join(tags), FIELD_VALUE_LIMIT), "inline": True}
+    # One line rather than two side-by-side fields: topics and the link to the
+    # discussion are both navigation, and splitting them into columns made the
+    # embed taller without making it clearer.
+    meta_line = " · ".join(
+        part
+        for part in (
+            " ".join(f"`{tag}`" for tag in tags),
+            f"[discuss #{issue.number}]({issue.html_url})" if issue.html_url else "",
         )
-    if issue.html_url:
-        fields.append(
-            {
-                "name": "Discussion",
-                "value": _trim(f"[#{issue.number}]({issue.html_url})", FIELD_VALUE_LIMIT),
-                "inline": True,
-            }
-        )
-    if fields:
-        embed["fields"] = fields[:MAX_FIELDS]
+        if part
+    )
+    if meta_line:
+        embed["fields"] = [{"name": "​", "value": _trim(meta_line, FIELD_VALUE_LIMIT)}]
 
     stamp = _timestamp(issue.meta.get("published_at")) or _timestamp(issue.created_at)
     if stamp:

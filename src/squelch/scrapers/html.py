@@ -19,7 +19,7 @@ import trafilatura
 from ..core.config import Config, Source
 from ..core.log import get_logger
 from ..core.models import RawArticle
-from .extract import extract_from_html
+from .extract import extract_from_html, social_image
 
 log = get_logger(__name__)
 
@@ -96,6 +96,7 @@ def scrape(source: Source, config: Config, client: httpx.Client) -> list[RawArti
                     source=source.id,
                     published_at=_parse_date(metadata.date if metadata else None),
                     body=body[: config.max_body_chars],
+                    image=social_image(page.text, url),
                 )
             )
         except ValueError as exc:

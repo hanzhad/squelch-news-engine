@@ -84,6 +84,10 @@ class IssueRecord(BaseModel):
         return str(self.meta.get("source", ""))
 
     @property
+    def image(self) -> str:
+        return str(self.meta.get("image", ""))
+
+    @property
     def delivered_to(self) -> set[str]:
         """Channels that have already delivered this article."""
         return {
@@ -403,6 +407,10 @@ class IssueStore:
             ),
             "scraped_by": "squelch",
         }
+        if article.image:
+            # Only when there is one: an empty key in every body is noise in a
+            # format people read by hand.
+            meta["image"] = article.image
         payload = self.client.request(
             "POST",
             f"/repos/{self.repo}/issues",
