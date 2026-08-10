@@ -35,6 +35,19 @@ class RawArticle(BaseModel):
     source: str
     published_at: datetime | None = None
     body: str = ""
+    # The picture the publisher put on the article for link previews. Optional
+    # everywhere downstream: plenty of pages have none.
+    image: str = ""
+
+    @field_validator("image")
+    @classmethod
+    def _usable_image(cls, value: str) -> str:
+        # Dropped rather than rejected — a bad picture must never cost us the
+        # article it came with.
+        parts = urlsplit(value.strip())
+        if parts.scheme not in ("http", "https") or not parts.netloc:
+            return ""
+        return value.strip()
 
     @field_validator("url")
     @classmethod

@@ -11,7 +11,7 @@ anti-bot dance. Write the module, register it against the source id, and the
 runner will call it instead of the generic scraper for that source. Everything
 else about the source — id, cadence, item cap — still comes from the config.
 
-    from ..extract import fetch_full_text
+    from ..extract import fetch_article
     from . import register
 
     @register("xai")
