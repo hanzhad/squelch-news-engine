@@ -10,7 +10,7 @@ from squelch.core.config import Config, Source
 from squelch.core.models import RawArticle
 from squelch.core.settings import Settings
 from squelch.scrapers import runner, sites
-from squelch.scrapers.html import _collect_links, _parse_date
+from squelch.scrapers.html import _collect_links, published_date
 
 LISTING = """
 <html><body>
@@ -57,19 +57,38 @@ def test_anchors_without_href_are_skipped() -> None:
     assert all(link.startswith("https://") for link in links)
 
 
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("2026-07-23", datetime(2026, 7, 23, tzinfo=UTC)),
-        ("2026-07-23T10:11:12", datetime(2026, 7, 23, tzinfo=UTC)),
-        (None, None),
-        ("", None),
-        ("July 2026", None),
-        ("2026-13-45", None),
-    ],
-)
-def test_dates_are_parsed_or_given_up_on(raw: str | None, expected: datetime | None) -> None:
-    assert _parse_date(raw) == expected
+ARTICLE_URL = "https://example.com/blog/a-post"
+
+DATED_META = """
+<html><head><meta property="article:published_time" content="2026-07-23T10:11:12Z"></head>
+<body><p>Body.</p></body></html>
+"""
+
+DATED_TIME_TAG = """
+<html><body><article><time datetime="2026-07-23">23 July</time><p>Body.</p></article></body></html>
+"""
+
+# The shape that caused the bug: no machine-readable date anywhere, but a year
+# in the footer for a guesser to latch onto.
+UNDATED = """
+<html><head><title>A post</title></head>
+<body><p>A post with no date at all.</p><footer>Copyright 2022 Example Inc.</footer></body></html>
+"""
+
+
+@pytest.mark.parametrize("page", [DATED_META, DATED_TIME_TAG])
+def test_a_date_the_page_actually_states_is_read(page: str) -> None:
+    assert published_date(page, ARTICLE_URL) == datetime(2026, 7, 23, tzinfo=UTC)
+
+
+def test_a_page_that_states_no_date_gets_none_rather_than_a_guess() -> None:
+    # Guessing put 2026 articles in 2022. Downstream falls back to the day we
+    # found the article, which is at least a fact.
+    assert published_date(UNDATED, ARTICLE_URL) is None
+
+
+def test_an_empty_page_is_not_a_crash() -> None:
+    assert published_date("", ARTICLE_URL) is None
 
 
 def test_a_registered_site_scraper_overrides_the_generic_one() -> None:

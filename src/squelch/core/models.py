@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from urllib.parse import urlsplit
 
@@ -26,6 +26,10 @@ class Status(StrEnum):
 
 ALL_STATUSES = tuple(Status)
 
+# Feeds in the wrong timezone, and servers with a drifting clock, both produce
+# dates a few hours ahead of ours. Anything further out is not a clock problem.
+CLOCK_SKEW = timedelta(days=2)
+
 
 class RawArticle(BaseModel):
     """A scraped article, before the LLM has seen it."""
@@ -38,6 +42,17 @@ class RawArticle(BaseModel):
     # The picture the publisher put on the article for link previews. Optional
     # everywhere downstream: plenty of pages have none.
     image: str = ""
+
+    @field_validator("published_at")
+    @classmethod
+    def _plausible_date(cls, value: datetime | None) -> datetime | None:
+        # Dropped rather than rejected, like the image: a date we cannot trust
+        # is worth less than the article, and "no date" already has a meaning
+        # downstream — the reader is shown when we found it instead.
+        if value is None:
+            return None
+        stamped = value if value.tzinfo else value.replace(tzinfo=UTC)
+        return None if stamped > datetime.now(UTC) + CLOCK_SKEW else stamped
 
     @field_validator("image")
     @classmethod

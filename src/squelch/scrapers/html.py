@@ -15,6 +15,7 @@ from urllib.parse import urldefrag, urljoin
 import httpx
 import lxml.html
 import trafilatura
+from htmldate import find_date
 
 from ..core.config import Config, Source
 from ..core.log import get_logger
@@ -24,8 +25,16 @@ from .extract import extract_from_html, social_image
 log = get_logger(__name__)
 
 
-def _parse_date(raw: str | None) -> datetime | None:
-    """trafilatura reports dates as YYYY-MM-DD; anything else is not worth guessing."""
+def published_date(page_html: str, url: str) -> datetime | None:
+    """The date the page states, or None when it states none.
+
+    ``extensive_search`` is off on purpose. With it on, a page carrying no date
+    at all still gets one — htmldate falls back to guessing from whatever
+    year-like string it can find in the markup, and ai.meta.com posts published
+    this summer came out dated 2022. No date is an honest answer: the article
+    then shows the day we found it, which is at least true.
+    """
+    raw = find_date(page_html, url=url, extensive_search=False, outputformat="%Y-%m-%d")
     if not raw:
         return None
     try:
@@ -94,7 +103,7 @@ def scrape(source: Source, config: Config, client: httpx.Client) -> list[RawArti
                     title=title,
                     url=url,
                     source=source.id,
-                    published_at=_parse_date(metadata.date if metadata else None),
+                    published_at=published_date(page.text, url),
                     body=body[: config.max_body_chars],
                     image=social_image(page.text, url),
                 )

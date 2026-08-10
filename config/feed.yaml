@@ -38,6 +38,13 @@ topics:
   - open-source
   - hardware
 
+# How far back an article may be dated and still be treated as news. Listing
+# pages keep months of posts on them, so without this every newly added source
+# opens its whole back catalogue on the day it is enabled. Articles the page
+# gives no date for are let through — unknown is not the same as old.
+# Raise it when adding a source whose archive is worth importing on purpose.
+max_age_days: 21
+
 # Article text handed to the summariser is truncated to this many characters.
 # The classifier reads far less — see classify_body_chars in core/settings.py.
 max_body_chars: 8000

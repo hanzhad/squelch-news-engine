@@ -16,6 +16,7 @@ from ..core.config import Config, Source
 from ..core.log import get_logger
 from ..core.models import RawArticle
 from .extract import USER_AGENT, extract_from_html, social_image
+from .html import published_date
 
 log = get_logger(__name__)
 
@@ -101,6 +102,7 @@ def scrape(source: Source, config: Config, client: object = None) -> list[RawArt
                         title=_title_from(page_html, url, link_text),
                         url=url,
                         source=source.id,
+                        published_at=published_date(page_html, url),
                         body=body[: config.max_body_chars],
                         image=social_image(page_html, url),
                     )

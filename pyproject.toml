@@ -6,6 +6,9 @@ requires-python = ">=3.12"
 dependencies = [
     "feedparser>=6.0.11",
     "trafilatura>=2.0.0",
+    # Comes with trafilatura, but html.py calls it directly to keep date
+    # extraction strict — so it is our dependency too, not an implicit one.
+    "htmldate>=1.9",
     "cssselect>=1.2",
     "httpx>=0.28",
     "pydantic>=2.10",
