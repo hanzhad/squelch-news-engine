@@ -19,7 +19,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import httpx
 
 from ..core.log import get_logger
-from ..core.models import Digest, DigestEntry, Status
+from ..core.models import Digest, DigestEntry
 from ..core.settings import Settings
 from ..core.throttle import paced
 from ..github.issues import IssueRecord, IssueStore
@@ -46,6 +46,10 @@ MAX_ATTEMPTS = 5
 MAX_BACKOFF = 120.0
 ACCENT_COLOR = 0x8A4B2A
 HIGHLIGHTS_TITLE = "Highlights"
+
+# Must match the channel id in config/delivery.yaml — that is what ties this
+# module to the sent:discord label and to the count that closes an issue.
+CHANNEL = "discord"
 
 
 class DiscordError(RuntimeError):
@@ -328,12 +332,14 @@ def _digest_embeds(digest: Digest) -> list[dict[str, Any]]:
 
 
 def publish_ready(settings: Settings, store: IssueStore) -> int:
-    """Post READY issues to Discord and move them to PUBLISHED.
+    """Post ready articles Discord has not seen yet and mark them delivered.
 
     Returns the number of messages actually sent. One bad article never stops
-    the batch: whatever fails stays at READY and the next run tries it again.
+    the batch: whatever fails keeps its place in the queue and the next run
+    tries it again. Whether the article is now finished with — that is, out on
+    every channel — is not this stage's question.
     """
-    issues = store.list_by_status(Status.READY, limit=settings.publish_batch_size)
+    issues = store.list_pending(CHANNEL, limit=settings.publish_batch_size)
     if not issues:
         log.info("nothing to publish")
         return 0
@@ -342,12 +348,12 @@ def publish_ready(settings: Settings, store: IssueStore) -> int:
     relabelled = 0
     with _Webhook(settings) as webhook:
         for issue in paced(issues, settings.publish_delay_seconds):
-            known_id = str(issue.meta.get("discord_message_id") or "")
+            known_id = str(issue.delivery(CHANNEL).get("message_id") or "")
             if known_id:
-                # A previous run posted this and died before relabelling.
+                # A previous run posted this and died before its label landed.
                 # Reposting would double it up, so only the label moves.
                 try:
-                    store.mark_published(issue, known_id)
+                    store.record_delivery(issue, CHANNEL, {"message_id": known_id})
                     relabelled += 1
                 except Exception as exc:  # noqa: BLE001 - retried on the next run
                     log.error(
@@ -363,12 +369,12 @@ def publish_ready(settings: Settings, store: IssueStore) -> int:
             posted += 1
 
             try:
-                store.mark_published(issue, message_id)
+                store.record_delivery(issue, CHANNEL, {"message_id": message_id})
             except Exception as exc:  # noqa: BLE001 - the message is out either way
                 # Logged loudly: the id exists nowhere else yet, and without it
                 # on the issue the next run has no way to know not to repost.
                 log.error(
-                    "#%d posted as message %s but the label did not move: %s",
+                    "#%d posted as message %s but was not recorded: %s",
                     issue.number,
                     message_id or "?",
                     exc,

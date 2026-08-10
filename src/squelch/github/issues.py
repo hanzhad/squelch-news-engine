@@ -44,6 +44,11 @@ SUMMARY_RE = re.compile(
 BODY_LIMIT = 60000
 TRUNCATION_NOTE = "\n\n[truncated]"
 
+# One label per delivery target. Status is a single line — raw, relevant, ready,
+# published — and delivery is not: an article is out on some channels and not
+# others at the same time. That does not fit in one label, so it gets its own.
+SENT_PREFIX = "sent:"
+
 
 class IssueRecord(BaseModel):
     """One article, as it currently exists on GitHub."""
@@ -77,6 +82,18 @@ class IssueRecord(BaseModel):
     @property
     def source(self) -> str:
         return str(self.meta.get("source", ""))
+
+    @property
+    def delivered_to(self) -> set[str]:
+        """Channels that have already delivered this article."""
+        return {
+            label[len(SENT_PREFIX) :] for label in self.labels if label.startswith(SENT_PREFIX)
+        }
+
+    def delivery(self, channel: str) -> dict[str, Any]:
+        """What a channel recorded when it delivered — timestamps, message ids."""
+        record = (self.meta.get("delivery") or {}).get(channel)
+        return record if isinstance(record, dict) else {}
 
     @property
     def status(self) -> Status | None:
@@ -288,11 +305,23 @@ class IssueStore:
 
     # -- reads --------------------------------------------------------------
 
-    def list_by_status(self, status: Status, limit: int | None = None) -> list[IssueRecord]:
-        payloads = self.client.paginate(
-            f"/repos/{self.repo}/issues",
-            {"labels": status.value, "state": "all", "sort": "created", "direction": "asc"},
-        )
+    def list_by_status(
+        self,
+        status: Status,
+        limit: int | None = None,
+        since: datetime | None = None,
+    ) -> list[IssueRecord]:
+        params: dict[str, Any] = {
+            "labels": status.value,
+            "state": "all",
+            "sort": "created",
+            "direction": "asc",
+        }
+        if since is not None:
+            # GitHub filters on last update, not creation. That is the useful
+            # sense here: an article the pipeline still touches stays in view.
+            params["since"] = since.isoformat()
+        payloads = self.client.paginate(f"/repos/{self.repo}/issues", params)
         records = [
             parse_issue(p)
             for p in payloads
@@ -304,17 +333,40 @@ class IssueStore:
         log.info("found %d issues with %s", len(records), status.value)
         return records
 
-    def list_in_feed(self, limit: int | None = None) -> list[IssueRecord]:
+    def list_pending(self, channel: str, limit: int | None = None) -> list[IssueRecord]:
+        """Ready articles this channel has not delivered yet.
+
+        Only READY, never PUBLISHED: an article closes once every channel that
+        was enabled at the time had it, and turning on a new channel must not
+        replay the whole archive into it.
+        """
+        pending = [
+            issue
+            for issue in self.list_by_status(Status.READY)
+            if channel not in issue.delivered_to
+        ]
+        if limit is not None:
+            pending = pending[:limit]
+        log.info("%d article(s) pending for %s", len(pending), channel)
+        return pending
+
+    def list_in_feed(
+        self, limit: int | None = None, since: datetime | None = None
+    ) -> list[IssueRecord]:
         """Everything that has cleared the LLM, whether or not Discord has it.
 
-        The web archive is the record; Discord is one notifier among several.
-        Gating the archive on a webhook would mean a Discord outage silently
-        stopping the site too, which is exactly the coupling the separate
-        stages exist to avoid.
+        The site is one delivery channel among several, not a gate on the
+        others: a Discord outage must not stop the page, and an unbuilt page
+        must not stop Discord. Hence both statuses — ready articles belong on
+        the site the moment they are written up.
+
+        ``since`` bounds how far back it reads. Published issues accumulate
+        forever, so an unbounded read would page through the entire history on
+        every rebuild and get slower every week.
         """
         seen: dict[int, IssueRecord] = {}
         for status in (Status.READY, Status.PUBLISHED):
-            for issue in self.list_by_status(status):
+            for issue in self.list_by_status(status, since=since):
                 seen[issue.number] = issue
         records = [seen[number] for number in sorted(seen, reverse=True)]
         return records[:limit] if limit is not None else records
@@ -403,21 +455,78 @@ class IssueStore:
         )
         log.info("#%d -> ready", issue.number)
 
-    def mark_published(self, issue: IssueRecord, discord_message_id: str | None) -> None:
+    def record_delivery(
+        self,
+        issue: IssueRecord,
+        channel: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Note that ``channel`` has delivered this article.
+
+        Written in two requests, body before label, and the order matters. If a
+        run dies between them the article carries proof it is already out — a
+        Discord message id, say — while still looking undelivered, so the next
+        run can see it and relabel instead of posting the thing twice. The other
+        order would lose the id and produce a duplicate.
+
+        Nothing here closes the issue: that decision belongs to
+        ``close_delivered``, which sees all the channels at once.
+
+        The record is updated in place, so a caller delivering to several
+        channels in a row reads back its own writes.
+        """
         meta = dict(issue.meta)
-        meta["published_at_discord"] = datetime.now().astimezone().isoformat()
-        if discord_message_id:
-            meta["discord_message_id"] = discord_message_id
+        delivery = dict(meta.get("delivery") or {})
+        delivery[channel] = {
+            "at": datetime.now().astimezone().isoformat(),
+            **(details or {}),
+        }
+        meta["delivery"] = delivery
         self._patch(
             issue.number,
             body=render_body(meta, issue.text, issue.summary, _verdict_from_meta(meta)),
-            labels=self._swap_status(issue.labels, Status.PUBLISHED),
-            # Closed on delivery, so the open list is exactly the work still in
-            # flight. The archive reads closed issues, so nothing is lost.
-            state="closed",
-            state_reason="completed",
         )
-        log.info("#%d -> published and closed", issue.number)
+        issue.meta = meta
+
+        labels = sorted({*issue.labels, f"{SENT_PREFIX}{channel}"})
+        self._patch(issue.number, labels=labels)
+        issue.labels = labels
+        log.info("#%d delivered to %s", issue.number, channel)
+
+    def close_delivered(self, required: list[str]) -> list[int]:
+        """Close every ready article that all required channels have delivered.
+
+        Deliberately not done by whichever channel happens to finish last. That
+        channel could die between its own label and the close, and then nobody
+        would ever look at the issue again — every channel has had it, so no
+        queue contains it. A separate pass owns the transition, re-derives the
+        answer from the labels every time, and therefore also picks up articles
+        that only qualified because a channel was switched off in config.
+        """
+        if not required:
+            # Otherwise "everyone delivered" is vacuously true and the whole
+            # queue closes without going anywhere.
+            log.warning("no channels are enabled, leaving ready articles open")
+            return []
+
+        closed: list[int] = []
+        for issue in self.list_by_status(Status.READY):
+            missing = set(required) - issue.delivered_to
+            if missing:
+                log.debug("#%d still owes %s", issue.number, ", ".join(sorted(missing)))
+                continue
+            self._patch(
+                issue.number,
+                labels=self._swap_status(issue.labels, Status.PUBLISHED),
+                # Closed once it is out everywhere, so the open list is exactly
+                # the work still in flight. The archive reads closed issues too,
+                # so nothing disappears from the site.
+                state="closed",
+                state_reason="completed",
+            )
+            closed.append(issue.number)
+            log.info("#%d -> published and closed", issue.number)
+        return closed
 
     def close(self, number: int, reason: str = "completed") -> None:
         self._patch(number, state="closed", state_reason=reason)

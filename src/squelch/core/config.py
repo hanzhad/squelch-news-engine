@@ -1,9 +1,10 @@
-"""Editorial policy and the source catalogue.
+"""Editorial policy, the source catalogue and the delivery targets.
 
 Split across files on purpose, one per thing you would sit down to change:
-``feed.yaml`` is what the feed *is*, ``sources.yaml`` is where it looks, and
-``models.yaml`` plus ``prompts/`` are how it decides. Editing the source list
-should never mean scrolling past the policy, and vice versa.
+``feed.yaml`` is what the feed *is*, ``sources.yaml`` is where it looks,
+``delivery.yaml`` is where it goes, and ``models.yaml`` plus ``prompts/`` are
+how it decides. Editing the source list should never mean scrolling past the
+policy, and vice versa.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from pydantic import BaseModel, Field
 CONFIG_DIR = Path("config")
 FEED_PATH = CONFIG_DIR / "feed.yaml"
 SOURCES_PATH = CONFIG_DIR / "sources.yaml"
+DELIVERY_PATH = CONFIG_DIR / "delivery.yaml"
 
 
 class Source(BaseModel):
@@ -34,6 +36,18 @@ class Source(BaseModel):
     link_selector: str | None = None
 
 
+class Channel(BaseModel):
+    """One place a ready article is delivered to.
+
+    There is no address here on purpose: where a channel actually posts is a
+    credential, and credentials come from the environment. This file only
+    decides which channels count.
+    """
+
+    id: str
+    enabled: bool = True
+
+
 class Config(BaseModel):
     # The public name of the feed — masthead, RSS channel, Discord digest. Kept
     # apart from the repository name so the community can be branded without
@@ -47,10 +61,16 @@ class Config(BaseModel):
     topics: list[str] = Field(default_factory=list)
     max_body_chars: int = 8000
     sources: list[Source] = Field(default_factory=list)
+    channels: list[Channel] = Field(default_factory=list)
 
     @property
     def enabled_sources(self) -> list[Source]:
         return [s for s in self.sources if s.enabled]
+
+    @property
+    def required_channels(self) -> list[str]:
+        """The channels an article must reach before it counts as published."""
+        return [c.id for c in self.channels if c.enabled]
 
 
 def _read(path: Path) -> dict:
@@ -60,7 +80,12 @@ def _read(path: Path) -> dict:
     return data
 
 
-def load_config(feed: Path | None = None, sources: Path | None = None) -> Config:
+def load_config(
+    feed: Path | None = None,
+    sources: Path | None = None,
+    delivery: Path | None = None,
+) -> Config:
     merged = _read(feed or FEED_PATH)
     merged.update(_read(sources or SOURCES_PATH))
+    merged.update(_read(delivery or DELIVERY_PATH))
     return Config.model_validate(merged)

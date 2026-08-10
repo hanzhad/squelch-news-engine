@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     publish_batch_size: int = 10
     publish_delay_seconds: float = 2.0
 
+    # How far back the site build reads. Without a bound it would page through
+    # every article ever published on every rebuild, and that cost grows with
+    # the archive forever. The page and the feed therefore show a rolling
+    # window, not the whole history — the issue tracker is the archive. Raise it
+    # to show more; the extra requests are paid on every build.
+    feed_window_days: int = 3
+
     # --- misc --------------------------------------------------------------
     request_timeout: float = 30.0
     # Bounded by GitHub's 65536-character issue body, not by disk.

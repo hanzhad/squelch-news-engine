@@ -15,6 +15,7 @@ from ..core.config import Config
 from ..core.log import get_logger
 from ..core.models import Status
 from .client import GitHubClient
+from .issues import SENT_PREFIX
 from .ledger import LEDGER_LABEL
 
 log = get_logger(__name__)
@@ -29,8 +30,8 @@ class LabelSpec(NamedTuple):
 STATUS_LABELS = [
     LabelSpec(Status.RAW.value, "d4c5f9", "Scraped, waiting to be classified"),
     LabelSpec(Status.RELEVANT.value, "fef2c0", "Worth publishing, waiting for its write-up"),
-    LabelSpec(Status.READY.value, "0e8a16", "Written up; in the web archive, waiting for Discord"),
-    LabelSpec(Status.PUBLISHED.value, "1d76db", "Delivered to Discord as well"),
+    LabelSpec(Status.READY.value, "0e8a16", "Written up, waiting on one or more channels"),
+    LabelSpec(Status.PUBLISHED.value, "1d76db", "Delivered to every enabled channel"),
     LabelSpec(Status.REJECTED.value, "b60205", "Classified as noise and closed"),
 ]
 
@@ -38,6 +39,12 @@ STATUS_LABELS = [
 def label_specs(config: Config) -> list[LabelSpec]:
     specs = list(STATUS_LABELS)
     specs.append(LabelSpec(LEDGER_LABEL, "c5def5", "Bookkeeping: the scraper's dedup ledger"))
+    # Every channel, not only the enabled ones: turning a channel off must not
+    # make the labels it already wrote unreadable.
+    specs += [
+        LabelSpec(f"{SENT_PREFIX}{channel.id}", "bfd4f2", f"Delivered to {channel.id}")
+        for channel in config.channels
+    ]
     specs += [
         LabelSpec(f"source:{source.id}", "ededed", f"Scraped from {source.id}")
         for source in config.sources

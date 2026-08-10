@@ -1,0 +1,43 @@
+name: labels
+
+on:
+  push:
+    branches: [main]
+    # Labels are derived from the config, so a config change is exactly when
+    # they go stale — a new source, topic or channel each means a new label.
+    # Left to itself GitHub invents the missing one on first use, in a random
+    # colour and with no description, and the issue list stops being readable.
+    paths:
+      - "config/**"
+      - ".github/workflows/labels.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: labels
+  cancel-in-progress: false
+
+jobs:
+  labels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      # Reconciles, never prunes: a label missing from the config is left alone,
+      # because issues out in the repository may still be carrying it.
+      - name: Bootstrap labels
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: squelch bootstrap-labels

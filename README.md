@@ -17,10 +17,10 @@ the state machine, and they — not some external table — are the source of tr
 article stands.
 
 ```
-status:1-raw ─classify─▶ status:2-relevant ─summarize─▶ status:3-ready ─publish─▶ status:4-published
-     │                                                        │                         │
-     └─classify─▶ status:rejected                             └── in the web archive     └── closed
-                  (closed, not planned)                           from here on              on delivery
+status:1-raw ─classify─▶ status:2-relevant ─summarize─▶ status:3-ready ─close─▶ status:4-published
+     │                                                        │                        │
+     └─classify─▶ status:rejected                     sent:site  sent:rss  sent:discord └── closed
+                  (closed, not planned)                    (delivery, one label each)
 ```
 
 Judging and writing are separate stages because they want different things. The classifier runs
@@ -30,8 +30,22 @@ already survived. Splitting them also means a bad minute at the API costs a summ
 a verdict — and lets you read `status:rejected` to see what the classifier threw away, with its
 reason rendered in the issue body rather than buried in a comment.
 
+Delivery does not fit on that line, so it gets labels of its own. Status is one axis — an
+article is raw, or relevant, or ready — while delivery is several at once: out on the site,
+not yet on Discord. Every channel in `config/delivery.yaml` owns a `sent:<id>` label, picks up
+ready articles that do not carry it yet, and marks them when it has them. A dead webhook holds
+up nothing but Discord.
+
+Nobody closes an issue on their way past. The channel that happens to deliver last could die
+between its own label and the close, and the article would sit open forever — every channel has
+had it, so no queue would contain it again. Instead `close-delivered` runs on its own schedule,
+re-derives the answer from the labels, and moves an article to `status:4-published` once every
+*enabled* channel has marked it. Switching a channel off in config therefore releases whatever
+was waiting on it, with nothing to re-run. Switching one on only affects articles still at
+`status:3-ready` — a new channel starts with today's news instead of replaying the archive.
+
 Open issues are exactly the work still in flight: rejected ones close as *not planned*,
-published ones close as *completed*.
+fully delivered ones close as *completed*.
 
 Issues additionally carry `source:<id>` (where it came from) and `topic:<tag>` (what it is
 about — the LLM picks tags from the list in the config).
@@ -55,7 +69,7 @@ the cost never grows with the archive. A uid is a hash of the canonicalized URL
 and query-parameter order do not affect it, so the same article arriving from three different
 feeds yields one uid.
 
-## The five pipelines
+## The pipelines
 
 Each pipeline is its own workflow in `.github/workflows/`, triggered by cron and manually via
 **Actions → Run workflow**.
@@ -65,15 +79,30 @@ Each pipeline is its own workflow in `.github/workflows/`, triggered by cron and
 | Scrape | `scrape.yml` | Walks the enabled sources, drops already-seen uids, opens issues labelled `status:1-raw`, updates the ledger issue | `0,30 * * * *` |
 | Classify | `classify.yml` | Judges each raw issue against `focus` on the cheap model: `status:2-relevant` with tags and a score, or `status:rejected` and closure | `10,40 * * * *` |
 | Summarize | `summarize.yml` | Writes up the survivors on the full model and moves them to `status:3-ready` | `20,50 * * * *` |
-| Publish | `publish.yml` | Sends ready articles to the Discord webhook, marks `status:4-published` and closes them | `5,20,35,50 * * * *` |
+| Publish | `publish.yml` | Sends ready articles Discord has not seen to the webhook and marks `sent:discord` | `5,25,45 * * * *` |
+| Close | `close.yml` | Closes ready articles that every enabled channel has delivered | `15,35,55 * * * *` |
 | Digest | `digest.yml` | Builds a weekly roundup with trends out of what reached the feed | `0 9 * * 1` |
+| Labels | `labels.yml` | Reconciles the label set with the config | on push to `config/**` |
 
-The offsets stagger the stages so each finds what the one before it just produced.
+Every stage owns its own five-minute slot, so no two ever fire on the same minute and queue
+behind each other on the runner. The offsets also stagger them in order, so each finds what the
+one before it just produced. (GitHub runs cron on a best-effort basis and delays it under load,
+so treat the minutes as intent rather than a guarantee — every stage is written to pick up
+whatever the last one left behind.)
 
-There is also `pages.yml` — it renders the static archive and deploys it to GitHub Pages, and it
-runs off `summarize`, not `publish`. **The web archive and Discord are independent consumers of
-the same queue.** An article is in the archive as soon as it is written up; whether Discord took
-it is a separate fact, recorded on the issue. A broken webhook must not stop the site.
+There is also `pages.yml` — it renders the static archive, deploys it to GitHub Pages, and marks
+`sent:site` and `sent:rss` on what it rendered. It runs off `summarize`, not `publish`: **the
+archive, the feed and Discord are independent consumers of the same queue.** The page and the
+feed are counted apart because they genuinely differ — the feed holds only the newest entries
+and skips anything without a link. Marking happens at build time rather than after deployment,
+which is safe because both outputs are re-rendered whole every time: a failed deploy costs a
+delay, never an article.
+
+The site reads a rolling window rather than the whole history — `FEED_WINDOW_DAYS`, three days
+by default. Published issues accumulate forever and the site rebuilds after every write-up, so
+an unbounded read would page through more of the archive every week for a page nobody scrolls
+that far down. The permanent record is the issue tracker; the site is the shop window onto it.
+Raise the setting to show more, and pay the extra requests on every build.
 
 None of the pipelines tries to do all the work in one run: scraping, both LLM stages and
 publishing each cap their batch and leave the remainder for the next tick. This is deliberate — GitHub
@@ -107,8 +136,9 @@ throttles bulk content creation, and the free Gemini tier counts requests per mi
    squelch bootstrap-labels
    ```
 
-   The command is idempotent: run it again after editing `topics` or the source list in the
-   config. Alternatively run it from Actions, if the workflow has a manual trigger.
+   After that it takes care of itself: `labels.yml` runs on every push that touches `config/**`,
+   which is exactly when a new source, topic or channel needs a label. The command is
+   idempotent, so running it by hand or from **Actions → labels → Run workflow** is always safe.
 
 5. **Enable GitHub Pages.** *Settings → Pages → Source → **GitHub Actions*** (not "Deploy from
    a branch"). The archive appears after the first successful `pages.yml` run.
@@ -124,6 +154,7 @@ Everything you would sit down to change lives in `config/`, one file per thing:
 | --- | --- |
 | `feed.yaml` | The name of the feed, `focus`, the allowed `topics`, text limits |
 | `sources.yaml` | The source catalogue and nothing else |
+| `delivery.yaml` | Which channels an article must reach before it counts as published |
 | `models.yaml` | Which Gemini model runs each stage |
 | `prompts/classify.yaml` | What the judge is told |
 | `prompts/summarize.yaml` | What the writer is told |
@@ -154,8 +185,8 @@ If the feed lets junk through, fix `focus` — not a threshold, and not the code
 ### `topics` — the bounds of the label set
 
 The LLM may only apply tags from this list, which keeps the set of `topic:*` labels in the
-repository finite. After adding a topic, run `squelch bootstrap-labels` so the label appears
-with a proper colour.
+repository finite. Pushing the new topic is enough — `labels.yml` creates the label with a
+proper colour and description before the classifier ever reaches for it.
 
 ### Adding an RSS source
 
@@ -216,10 +247,12 @@ CLI commands (the console script from `pyproject.toml` is `squelch`):
 | Command | Purpose |
 | --- | --- |
 | `squelch scrape` | walk the sources and open issues |
-| `squelch classify` | judge raw issues on the cheap model |\n| `squelch summarize` | write up the ones that survived |
+| `squelch classify` | judge raw issues on the cheap model |
+| `squelch summarize` | write up the ones that survived |
 | `squelch publish` | send ready articles to Discord |
+| `squelch close-delivered` | close what every enabled channel has delivered |
 | `squelch digest` | build the weekly digest |
-| `squelch build-site` | render the static archive |
+| `squelch build-site` | render the static archive and the feed |
 | `squelch bootstrap-labels` | create or repair labels from the config |
 | `squelch rebuild-ledger` | rebuild the dedup ledger from the issues themselves |
 
@@ -243,18 +276,20 @@ DISCORD_WEBHOOK_URL=...
 
 The same file overrides the thresholds in `src/squelch/core/settings.py` — for example
 `SCRAPE_MAX_NEW_ISSUES`, `LLM_DELAY_SECONDS`, `SEEN_MAX_ENTRIES`, `GEMINI_MODEL`,
-`CLASSIFY_BODY_CHARS`. Secret values are never committed: only their names live in the
+`CLASSIFY_BODY_CHARS`, `FEED_WINDOW_DAYS`. Secret values are never committed: only their names live in the
 repository.
 
 ## Known limitations
 
 An honest list. These are not bugs about to be fixed — they follow from the architecture.
 
-- **Posting to Discord and moving the label are not one transaction.** The message goes to the
-  webhook first, and only then does the issue become `status:3-published`. If the run dies (or
-  Actions kills it on timeout) between the two, the article stays `status:2-ready` and gets
-  posted to Discord again on the next run. A duplicate in the channel is the price of never
-  losing a publication; the opposite order would lose them.
+- **Posting to Discord and recording it are not one transaction.** The message goes to the
+  webhook first, then the message id into the issue body, then the `sent:discord` label. Written
+  in that order on purpose: a run that dies mid-way leaves the id behind, and the next run sees
+  it and relabels instead of posting the article twice. The gap that remains is the one before
+  the id is stored at all — if Actions kills the run between the webhook accepting the message
+  and the body being written, the article is posted again next time. A duplicate in the channel
+  is the price of never losing a publication; the opposite order would lose them.
 - **The dedup ledger is a rolling window.** The ledger issue keeps only the newest
   `SEEN_MAX_ENTRIES` uids (3500 by default, bounded by GitHub's 65536-character issue body). A
   source silent for a very long time can have its old entries pushed out by other sources — and

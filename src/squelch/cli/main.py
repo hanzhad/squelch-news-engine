@@ -153,7 +153,7 @@ def summarize() -> None:
 
 @app.command()
 def publish() -> None:
-    """Send every ready article to Discord and mark it published."""
+    """Send ready articles Discord has not seen yet and mark them delivered."""
     settings = _boot()
     _require(settings, "DISCORD_WEBHOOK_URL")
 
@@ -162,6 +162,23 @@ def publish() -> None:
     with _store(settings) as store:
         sent = publish_ready(settings, store)
     log.info("publish done: %d articles sent", sent)
+
+
+@app.command("close-delivered")
+def close_delivered() -> None:
+    """Close ready articles that every enabled channel has delivered.
+
+    Its own stage on purpose. If the channel that happened to deliver last also
+    had to close the issue, a crash in that window would strand the article
+    open forever — every channel has had it, so no queue would contain it
+    again. This pass re-derives the answer from the labels each time instead.
+    """
+    settings = _boot()
+    config = _config()
+
+    with _store(settings) as store:
+        closed = store.close_delivered(config.required_channels)
+    log.info("close done: %d article(s) published", len(closed))
 
 
 @app.command()
@@ -198,6 +215,13 @@ def build_site_cmd(
         Path,
         typer.Option("--out", help="Directory to write the static site into."),
     ] = Path("site/out"),
+    record: Annotated[
+        bool,
+        typer.Option(
+            "--record/--no-record",
+            help="Mark the rendered articles as delivered to the site and the feed.",
+        ),
+    ] = True,
 ) -> None:
     """Render the published archive as a static site."""
     settings = _boot()
@@ -206,7 +230,7 @@ def build_site_cmd(
     from ..site.build import build_site
 
     with _store(settings) as store:
-        build_site(settings, config, store, out)
+        build_site(settings, config, store, out, record=record)
     log.info("site written to %s", out)
 
 

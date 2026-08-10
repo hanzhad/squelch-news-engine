@@ -2,9 +2,10 @@ name: publish
 
 on:
   schedule:
-    # Every 15 minutes, deliberately off the :00/:30 scrape and :10/:40 filter
-    # slots so the three stages do not queue behind each other on the runner.
-    - cron: "5,20,35,50 * * * *"
+    # Every stage owns its own five-minute slot — scrape :00/:30, classify
+    # :10/:40, summarize :20/:50, publish here, close :15/:35/:55 — so no two
+    # ever fire on the same minute and queue behind each other on the runner.
+    - cron: "5,25,45 * * * *"
   workflow_dispatch:
 
 permissions:

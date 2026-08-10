@@ -1,0 +1,27 @@
+# Where a ready article ends up.
+#
+# Every channel is independent: it picks up issues at status:3-ready that do not
+# carry its own `sent:<id>` label yet, delivers them, and marks them. Only when
+# every enabled channel has marked an issue does it become status:4-published
+# and close. So the open issue list is exactly what still owes somebody a
+# delivery, and a broken channel holds up nothing but itself.
+#
+# Disabling a channel takes it out of that count immediately, so articles stop
+# waiting for it. Enabling one only affects articles that are still ready:
+# anything already published stays published, which is deliberate — a new
+# channel should start with today's news, not replay the whole archive.
+#
+# Adding a channel here also means re-running `squelch bootstrap-labels`.
+
+channels:
+  # The static archive on GitHub Pages: the permanent, public record.
+  - id: site
+    enabled: true
+  # The RSS feed built alongside it. Separate from the page because it is
+  # separately fallible — it holds only the most recent entries and skips
+  # anything without a link, so "on the page" and "in the feed" genuinely differ.
+  - id: rss
+    enabled: true
+  # The community chat channel.
+  - id: discord
+    enabled: true

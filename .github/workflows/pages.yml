@@ -25,8 +25,9 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      # The site is rendered from the published issues.
-      issues: read
+      # Rendered from the issues, and writes back: the page and the feed are
+      # delivery channels like Discord, so each marks what it just published.
+      issues: write
       # configure-pages only reads the Pages config (enablement defaults to
       # false), so the build job never needs pages:write.
       pages: read

@@ -27,6 +27,13 @@ issues are exactly the work still in flight. Extra labels: `source:<id>`, `topic
 source of truth — never introduce a parallel state store. Use `IssueStore._swap_status` to
 change status so that `source:` and `topic:` labels survive.
 
+Delivery is a separate axis and never goes into `status:`. Each channel in `config/delivery.yaml`
+owns a `sent:<id>` label, consumes `status:3-ready` via `IssueStore.list_pending(channel)`, and
+records itself with `record_delivery`. Publishers must not close issues: `close_delivered` is the
+single owner of the move to `status:4-published`, so a channel dying after its own label can
+never strand an article. `record_delivery` writes the body before the label on purpose — that
+order is what stops a half-finished Discord run from double-posting.
+
 Issue bodies carry a YAML metadata block inside an HTML comment; `render_body` / `parse_body`
 in `github/issues.py` are the only place that format is defined. An issue opened by hand has
 no metadata block and no original marker — `IssueRecord.text` falls back to `raw_body` for

@@ -1,0 +1,42 @@
+name: close
+
+on:
+  schedule:
+    # Ten minutes behind publish, in the gap the other stages leave free. Every
+    # stage sits on its own five-minute slot so they never all fire at once and
+    # queue behind each other on the runner.
+    - cron: "15,35,55 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: close
+  cancel-in-progress: false
+
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    # Nothing here talks to a model or a webhook, so a slow run means GitHub is
+    # slow, and waiting out the next tick is cheaper than waiting here.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      # Whoever delivers last does not close the issue: it could die in that
+      # window and strand the article open with no queue left to find it. This
+      # re-reads the labels instead, so a missed close costs one tick.
+      - name: Close delivered
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: squelch close-delivered
