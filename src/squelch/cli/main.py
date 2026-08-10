@@ -27,6 +27,7 @@ from ..core.settings import Settings, get_settings
 from ..github.client import GitHubClient, GitHubError
 from ..github.issues import IssueStore
 from ..github.labels import ensure_labels, label_specs
+from ..github.ledger import rebuild
 from ..retention import run_retention
 from ..scrapers.runner import run_scrape
 
@@ -43,6 +44,7 @@ class SourceType(StrEnum):
     """The scraper families, exposed as choices for --type."""
 
     RSS = "rss"
+    HTML = "html"
     WEB = "web"
 
 
@@ -215,6 +217,21 @@ def retention() -> None:
     with _store(settings) as store:
         closed = run_retention(settings, store)
     log.info("retention done: %d issues closed", closed)
+
+
+@app.command("rebuild-ledger")
+def rebuild_ledger() -> None:
+    """Rebuild the dedup ledger from the uids stored in the issues themselves.
+
+    The ledger is a cache; the issues are the record. Use this if the ledger
+    issue is lost or edited into nonsense. Pages through the whole repository,
+    so it is a manual repair, not something to schedule.
+    """
+    settings = _boot()
+
+    with _store(settings) as store:
+        count = rebuild(store.client, store, max_entries=settings.seen_max_entries)
+    log.info("ledger rebuilt with %d uids", count)
 
 
 if __name__ == "__main__":

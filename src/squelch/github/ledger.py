@@ -154,6 +154,35 @@ class IssueLedger:
         return f"{MARKER}\n\n{PREAMBLE}\n```text\n{uids}\n```\n"
 
 
+def rebuild(client: GitHubClient, store: object, max_entries: int = MAX_ENTRIES) -> int:
+    """Reconstruct the ledger from the uids already stored in the issues.
+
+    The ledger is a cache, not the record: every article issue carries its uid
+    in the metadata block, so the archive can always rebuild it. Expensive —
+    it pages through every issue in the repository — which is exactly why the
+    scraper does not work this way on every run. Run it by hand if the ledger
+    issue is deleted, truncated or edited into nonsense.
+    """
+    from ..core.models import ALL_STATUSES
+
+    seen: dict[int, str] = {}
+    for status in ALL_STATUSES:
+        for issue in store.list_by_status(status):  # type: ignore[attr-defined]
+            if issue.uid:
+                seen[issue.number] = issue.uid
+
+    # Oldest issue first, so trimming to the window keeps the newest uids —
+    # the same ordering the scraper maintains as it appends.
+    ordered = [uid for _, uid in sorted(seen.items())]
+
+    ledger = IssueLedger(client, max_entries=max_entries).load()
+    ledger._order = ordered[-max_entries:]
+    ledger._index = set(ledger._order)
+    ledger.save()
+    log.info("rebuilt ledger from %d issues", len(ordered))
+    return len(ledger._order)
+
+
 class NullLedger:
     """Stand-in for ``--dry-run`` without credentials: nothing is remembered."""
 
