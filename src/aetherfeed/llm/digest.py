@@ -45,7 +45,7 @@ def build_digest(
 
     client = GeminiClient(settings)
     digest = client.structured(
-        prompts.digest_prompt(config, days, ranked), Digest, prompts.DIGEST_SYSTEM
+        prompts.digest_prompt(config, days, ranked), Digest, prompts.digest_system()
     )
     if digest is None:
         log.error("digest generation failed")

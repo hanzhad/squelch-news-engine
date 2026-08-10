@@ -1,79 +1,73 @@
-"""Prompt text, kept apart from the code that runs it.
+"""Assembling prompts from the text in ``config/prompts.yaml``.
 
 What this feed publishes is tuned by rewriting sentences, not logic, so the
-wording lives in one file that can be read end to end. Two rules shape
-everything here: ``config.focus`` is quoted verbatim, because it is the
-editorial policy and paraphrasing it silently changes the feed; and the JSON
-shape is never described, because the schema already travels with the request
-and repeating it in prose degrades the answer.
+wording lives in a config file that can be read and edited without opening the
+code. This module only fills in the placeholders.
+
+``string.Template`` rather than ``str.format``: prompt text is prose that may
+well contain literal braces, and a stray one should not blow up a run.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from functools import lru_cache
+from pathlib import Path
+from string import Template
+
+import yaml
+from pydantic import BaseModel
 
 from ..core.config import Config
 from ..github.issues import IssueRecord
+
+PROMPTS_PATH = Path("config/prompts.yaml")
 
 # Enough of each article for the model to see the theme, short enough that forty
 # of them still make a small request.
 DIGEST_SUMMARY_CHARS = 400
 
-FILTER_SYSTEM = (
-    "You are the editor of a technical news feed. You judge one article at a "
-    "time against the feed's policy, using only what the article itself says. "
-    "You are strict: a slot in the feed is expensive, an omission is cheap."
-)
 
-DIGEST_SYSTEM = (
-    "You are writing the weekly roundup for a technical news feed. You work "
-    "only from the articles you are given, you never invent a fact, a title or "
-    "a link, and you write plainly for engineers who read the feed already."
-)
+class PromptPair(BaseModel):
+    system: str
+    template: str
+
+
+class Prompts(BaseModel):
+    filter: PromptPair
+    digest: PromptPair
+
+
+@lru_cache
+def load_prompts(path: Path | None = None) -> Prompts:
+    target = path or PROMPTS_PATH
+    return Prompts.model_validate(yaml.safe_load(target.read_text(encoding="utf-8")))
+
+
+def _fill(template: str, **values: str) -> str:
+    # safe_substitute so an unknown or mistyped placeholder survives as text
+    # instead of taking the whole run down.
+    return Template(template).safe_substitute(**values).strip()
+
+
+def filter_system() -> str:
+    return load_prompts().filter.system.strip()
+
+
+def digest_system() -> str:
+    return load_prompts().digest.system.strip()
 
 
 def filter_prompt(config: Config, issue: IssueRecord) -> str:
     """The judgement call on a single article."""
-    body = issue.text.strip()[: config.max_body_chars]
-    topics = ", ".join(config.topics) or "(none)"
-
-    return "\n".join(
-        [
-            "EDITORIAL POLICY",
-            "",
-            config.focus.strip(),
-            "",
-            "ALLOWED TOPICS",
-            "",
-            topics,
-            "",
-            "RULES",
-            "",
-            "- Judge only the article below. Do not fill gaps from your own knowledge.",
-            "- Default to not relevant. Say relevant only when the article clearly matches",
-            "  the policy and carries facts a practitioner could act on.",
-            "- Thin, vague, promotional or unverifiable items are not relevant, however",
-            "  interesting the headline sounds. So is anything you cannot check from the",
-            "  text in front of you.",
-            "- The text may be truncated; judge what is present. A headline with no body",
-            "  and nothing concrete in it is not relevant.",
-            "- Tag only from the allowed topics above, at most three, and only ones the",
-            "  article is genuinely about. No tags when it is not relevant.",
-            "- Score how much this changes a working engineer's day: 0-3 routine, 4-6 worth",
-            "  knowing, 7-10 changes decisions.",
-            "- Summarise in plain English with no marketing adjectives, and only when the",
-            "  article is relevant.",
-            "- Give the reason in one sentence, naming the part of the policy that decided",
-            "  it.",
-            "",
-            "ARTICLE",
-            "",
-            f"Title: {issue.title}",
-            f"Source: {issue.source or 'unknown'}",
-            f"URL: {issue.url or 'unknown'}",
-            "",
-            body or "(no article text was captured)",
-        ]
+    return _fill(
+        load_prompts().filter.template,
+        focus=config.focus.strip(),
+        topics=", ".join(config.topics) or "(none)",
+        title=issue.title,
+        source=issue.source or "unknown",
+        url=issue.url or "unknown",
+        body=issue.text.strip()[: config.max_body_chars] or "(no article text was captured)",
     )
 
 
@@ -88,31 +82,10 @@ def digest_prompt(config: Config, days: int, issues: Sequence[IssueRecord]) -> s
             f"  Summary: {gist or '(none)'}",
         ]
 
-    return "\n".join(
-        [
-            "EDITORIAL POLICY",
-            "",
-            config.focus.strip(),
-            "",
-            "TASK",
-            "",
-            f"These {len(issues)} articles were published by the feed in the last "
-            f"{days} days. Write the roundup.",
-            "",
-            "RULES",
-            "",
-            "- The headline is one sentence naming what this week was actually about.",
-            "  No questions, no colons-and-a-slogan, no hype.",
-            "- A trend must be visible in more than one article. If only one thing",
-            "  happened, say so in fewer trends rather than padding the list.",
-            "- Highlight the articles that matter most, at most eight of them.",
-            "- Copy each title and URL exactly as given below. Never write a URL that",
-            "  does not appear in the list.",
-            "- Each takeaway is one sentence on why that article matters, not a restated",
-            "  headline.",
-            "",
-            "ARTICLES",
-            "",
-            *entries,
-        ]
+    return _fill(
+        load_prompts().digest.template,
+        focus=config.focus.strip(),
+        count=str(len(issues)),
+        days=str(days),
+        articles="\n".join(entries),
     )

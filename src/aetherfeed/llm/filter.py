@@ -46,7 +46,7 @@ def run_filter(settings: Settings, config: Config, store: IssueStore) -> tuple[i
             continue
 
         verdict = client.structured(
-            prompts.filter_prompt(config, issue), Verdict, prompts.FILTER_SYSTEM
+            prompts.filter_prompt(config, issue), Verdict, prompts.filter_system()
         )
         if verdict is None:
             log.warning("#%d got no verdict, staying raw", issue.number)
