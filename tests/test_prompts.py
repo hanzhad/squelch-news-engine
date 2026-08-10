@@ -48,11 +48,15 @@ def test_the_shipped_model_ids_are_named_per_stage() -> None:
     assert models.classify and models.summarize and models.digest
 
 
-def test_classification_and_write_up_use_different_models() -> None:
-    """The whole point of the split: the cheap model judges, the good one writes."""
+def test_the_per_article_stages_stay_off_the_digest_s_model() -> None:
+    """Requests are metered per model per day, and the ceilings differ by an
+    order of magnitude. The digest runs once a week and can afford a scarce,
+    stronger model; classify and summarize run on every article and cannot.
+    Moving either of them onto the digest's model drains it in an afternoon."""
     models = prompts.load_models()
 
-    assert models.classify != models.summarize
+    assert models.classify != models.digest
+    assert models.summarize != models.digest
 
 
 def test_classify_prompt_quotes_the_policy_verbatim(config: Config, issue: IssueRecord) -> None:

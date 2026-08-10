@@ -108,9 +108,16 @@ None of the pipelines tries to do all the work in one run: scraping, both LLM st
 publishing each cap their batch and leave the remainder for the next tick. This is deliberate — GitHub
 throttles bulk content creation, and the free Gemini tier meters requests tightly.
 
-That quota is counted **per model**, which matters the day you drain it: `digest.yml` takes a
-`model` input on manual dispatch, so a roundup can still be written on a model that has budget
-left while the usual one is spent. Blank — which is what the scheduled run passes — leaves
+That quota is counted **per model**, and it counts requests rather than tokens — we peak at
+about 5% of the token allowance and can still run out of day. The ceilings differ by an order of
+magnitude: 500 requests a day on the lite models against 20 on `gemini-3.6-flash`. So which
+model a stage sits on is a capacity decision before it is a quality one, and both high-volume
+stages belong on a lite model. See the comments in `config/models.yaml` for why each stage sits
+where it does.
+
+Per-model counting also matters the day you drain one: `digest.yml` takes a `model` input on
+manual dispatch, so a roundup can still be written on a model that has budget left while the
+usual one is spent. Blank — which is what the scheduled run passes — leaves
 `config/models.yaml` in charge.
 
 ## Quick start
