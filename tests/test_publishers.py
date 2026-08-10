@@ -48,3 +48,19 @@ def test_the_webhook_always_asks_discord_for_the_message_id() -> None:
 
 def test_asking_for_the_id_does_not_lose_the_webhook_s_own_query() -> None:
     assert "thread_id=7" in _with_wait(f"{FEED}?thread_id=7")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        # A secret pasted without its scheme: httpx would take it as a bare
+        # host and die deep in the transport, after the digest was written.
+        "discord.com/api/webhooks/1/feed",
+        "/api/webhooks/1/feed",
+        "https://",
+        "   ",
+    ],
+)
+def test_a_malformed_webhook_is_rejected_before_any_work_is_done(url: str) -> None:
+    with pytest.raises(DiscordError, match="webhook URL"):
+        _with_wait(url)
