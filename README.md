@@ -161,7 +161,7 @@ Everything you would sit down to change lives in `config/`, one file per thing:
 | --- | --- |
 | `feed.yaml` | The name of the feed, `focus`, the allowed `topics`, how far back news reaches, text limits |
 | `sources.yaml` | The source catalogue and nothing else |
-| `delivery.yaml` | Which channels an article must reach before it counts as published |
+| `delivery.yaml` | Which channels an article must reach before it counts as published, and how much room it gets there |
 | `models.yaml` | Which Gemini model runs each stage |
 | `prompts/classify.yaml` | What the judge is told |
 | `prompts/summarize.yaml` | What the writer is told |
@@ -194,6 +194,37 @@ If the feed lets junk through, fix `focus` — not a threshold, and not the code
 The LLM may only apply tags from this list, which keeps the set of `topic:*` labels in the
 repository finite. Pushing the new topic is enough — `labels.yml` creates the label with a
 proper colour and description before the classifier ever reaches for it.
+
+### `emphasis` — how loud an article is in Discord
+
+The classifier scores every article 0-10 on one question, asked in
+`prompts/classify.yaml`: how much this changes a working engineer's day. That score decides
+how much of the channel the article gets.
+
+```yaml
+  - id: discord
+    enabled: true
+    emphasis:
+      lead: 7        # full-width picture, summary, topic line
+      standard: 4    # small picture on the right, same text
+                     # below that: headline and one line, no picture
+```
+
+Height is the signal that actually works — a chat channel is skimmed while it scrolls past, and
+a lead is several times the size of a brief. The colour only confirms what the size already
+said, which is why all three stay in one family: this is one feed, not three bots.
+
+Nothing is dropped or delayed. A brief keeps its headline, its link, its topics and its
+discussion link, and is reachable in the same two clicks — it just stops competing. On the
+archive so far the split lands at roughly 17% lead, 49% standard, 35% brief.
+
+Only Discord reads this. The site and the feed are read on purpose rather than skimmed, so they
+give every article the same room.
+
+Raise `lead` if too much of the channel is shouting. Set `standard: 0` to switch the compact
+tier off and give everything equal weight. If the classifier ever drifts and starts handing out
+sevens to everything, the tiers stop meaning anything — the distribution above is worth a
+glance now and then.
 
 ### Adding an RSS source
 

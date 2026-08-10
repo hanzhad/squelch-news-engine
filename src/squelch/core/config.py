@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 CONFIG_DIR = Path("config")
 FEED_PATH = CONFIG_DIR / "feed.yaml"
@@ -36,16 +36,40 @@ class Source(BaseModel):
     link_selector: str | None = None
 
 
+class Emphasis(BaseModel):
+    """The scores at which an article earns more room in a channel.
+
+    Read as thresholds from the top down: at ``lead`` or above an article is
+    given the full treatment, at ``standard`` or above a smaller one, and
+    anything below that is reduced to its headline. Nothing is ever dropped —
+    this decides size, not whether an article is delivered.
+    """
+
+    lead: int = Field(default=7, ge=0, le=10)
+    standard: int = Field(default=4, ge=0, le=10)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> Emphasis:
+        if self.standard > self.lead:
+            raise ValueError(
+                f"emphasis.standard ({self.standard}) is above emphasis.lead ({self.lead}), "
+                "which would make the lead tier unreachable"
+            )
+        return self
+
+
 class Channel(BaseModel):
     """One place a ready article is delivered to.
 
     There is no address here on purpose: where a channel actually posts is a
     credential, and credentials come from the environment. This file only
-    decides which channels count.
+    decides which channels count, and how much room each article gets once it
+    is there.
     """
 
     id: str
     enabled: bool = True
+    emphasis: Emphasis = Field(default_factory=Emphasis)
 
 
 class Config(BaseModel):
@@ -74,6 +98,10 @@ class Config(BaseModel):
     def required_channels(self) -> list[str]:
         """The channels an article must reach before it counts as published."""
         return [c.id for c in self.channels if c.enabled]
+
+    def channel(self, channel_id: str) -> Channel:
+        """One channel's settings, or the defaults if it is not configured."""
+        return next((c for c in self.channels if c.id == channel_id), Channel(id=channel_id))
 
 
 def _read(path: Path) -> dict:

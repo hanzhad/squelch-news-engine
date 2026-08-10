@@ -25,3 +25,18 @@ channels:
   # The community chat channel.
   - id: discord
     enabled: true
+    # How much of the channel an article gets, by the score the classifier gave
+    # it. Only Discord reads this: a chat channel is skimmed while it scrolls
+    # past, so weight is the only way to say "this one matters". The site and
+    # the feed are read on purpose and give everything the same room.
+    #
+    #   lead      full-width picture, summary, topic line
+    #   standard  small picture on the right, same text
+    #   brief     headline and one line, no picture
+    #
+    # Every article is still posted — only its size changes, and it links to
+    # the same places either way. Raise `lead` if too much of the channel is
+    # shouting; set `standard: 0` to switch the compact tier off entirely.
+    emphasis:
+      lead: 7
+      standard: 4

@@ -34,6 +34,12 @@ single owner of the move to `status:4-published`, so a channel dying after its o
 never strand an article. `record_delivery` writes the body before the label on purpose — that
 order is what stops a half-finished Discord run from double-posting.
 
+The classifier's `score` decides how much room an article gets in Discord, through `emphasis`
+thresholds in `delivery.yaml` — `_weight` in `publishers/discord.py` maps it to a lead, a
+standard or a brief. Size is the whole signal; the colour only confirms it. Every article is
+still posted and still links to the same places, so this must never become a filter — a score
+threshold that silently drops articles belongs nowhere in this pipeline.
+
 Issue bodies carry a YAML metadata block inside an HTML comment; `render_body` / `parse_body`
 in `github/issues.py` are the only place that format is defined. An issue opened by hand has
 no metadata block and no original marker — `IssueRecord.text` falls back to `raw_body` for
