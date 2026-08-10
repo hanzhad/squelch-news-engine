@@ -15,6 +15,7 @@ from ..core.config import Config
 from ..core.log import get_logger
 from ..core.models import Status
 from .client import GitHubClient
+from .ledger import LEDGER_LABEL
 
 log = get_logger(__name__)
 
@@ -35,6 +36,7 @@ STATUS_LABELS = [
 
 def label_specs(config: Config) -> list[LabelSpec]:
     specs = list(STATUS_LABELS)
+    specs.append(LabelSpec(LEDGER_LABEL, "c5def5", "Bookkeeping: the scraper's dedup ledger"))
     specs += [
         LabelSpec(f"source:{source.id}", "ededed", f"Scraped from {source.id}")
         for source in config.sources

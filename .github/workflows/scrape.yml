@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  # The only workflow that writes to the repository: it commits data/seen.json.
-  contents: write
+  contents: read
+  # The dedup ledger is an issue too, so issue write covers everything here.
   issues: write
 
 concurrency:
@@ -24,11 +24,6 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-        with:
-          # Enough history for the rebase below to find a common ancestor
-          # without paying for a full clone of a repo that gets a commit
-          # every half hour.
-          fetch-depth: 10
 
       - uses: actions/setup-python@v7
         with:
@@ -43,21 +38,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: aetherfeed scrape
-
-      - name: Commit seen ledger
-        run: |
-          set -euo pipefail
-          # --porcelain rather than `git diff`, so the very first run — when the
-          # file is still untracked — is not mistaken for "unchanged".
-          if [ -z "$(git status --porcelain -- data/seen.json)" ]; then
-            echo "ledger unchanged, nothing to commit"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/seen.json
-          git commit -m "chore: update seen ledger [skip ci]"
-          # Someone may have pushed since checkout; rebase our single commit on
-          # top of them rather than failing the push.
-          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"

@@ -5,11 +5,11 @@ from __future__ import annotations
 from ..core.config import Config
 from ..core.log import get_logger
 from ..core.models import RawArticle, Status
-from ..core.seen import SeenLedger
 from ..core.settings import Settings
 from ..core.throttle import paced
 from ..github.client import GitHubError
 from ..github.issues import IssueStore
+from ..github.ledger import IssueLedger, NullLedger
 from . import html, rss, web
 from .extract import new_http_client
 
@@ -69,7 +69,11 @@ def run_scrape(
     Articles over the per-run cap are left unrecorded on purpose, so the next
     cron tick picks them up instead of dropping them.
     """
-    ledger = SeenLedger(max_entries=settings.seen_max_entries).load()
+    ledger = (
+        IssueLedger(store.client, max_entries=settings.seen_max_entries).load()
+        if store is not None
+        else NullLedger()
+    )
     in_flight = _in_flight_uids(store)
     articles = collect(config, settings, only_type)
 

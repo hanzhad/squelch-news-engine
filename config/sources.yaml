@@ -38,9 +38,9 @@ topics:
 max_body_chars: 8000
 
 sources:
-  # -- primary sources: the labs and vendors themselves ---------------------
+  # -- labs and vendors, first-hand ----------------------------------------
 
-  # Anthropic publishes no feed, but the newsroom is server-rendered, so it
+  # Anthropic publishes no feed, but its newsroom is server-rendered, so it
   # needs a selector rather than a browser.
   - id: anthropic
     type: html
@@ -48,10 +48,17 @@ sources:
     link_selector: 'a[href^="/news/"]'
     max_items: 8
 
-  - id: openai
-    type: rss
-    url: https://openai.com/news/rss.xml
+  # The product blog lives on a separate domain and also has no feed.
+  - id: claude
+    type: html
+    url: https://claude.com/blog
+    link_selector: 'a[href^="/blog/"]'
     max_items: 5
+
+  - id: openaidevs
+    type: rss
+    url: https://developers.openai.com/rss.xml
+    max_items: 4
 
   - id: googleai
     type: rss
@@ -63,29 +70,62 @@ sources:
     url: https://deepmind.google/blog/rss.xml
     max_items: 5
 
-  - id: googleresearch
-    type: rss
-    url: https://research.google/blog/rss/
-    max_items: 5
+  # Meta rejects a browser-like Accept header with a 400 but serves the page
+  # fine with the default */*, which is what our client sends. Links here are
+  # absolute, so the selector matches on substring rather than prefix.
+  - id: metaai
+    type: html
+    url: https://ai.meta.com/blog/
+    link_selector: 'a[href*="/blog/"]'
+    max_items: 4
 
   - id: microsoft
     type: rss
     url: https://blogs.microsoft.com/feed/
-    max_items: 5
+    max_items: 4
 
-  - id: azure
+  - id: msresearch
     type: rss
-    url: https://azure.microsoft.com/en-us/blog/feed/
-    max_items: 5
+    url: https://www.microsoft.com/en-us/research/feed/
+    max_items: 4
+
+  - id: msdevblogs
+    type: rss
+    url: https://devblogs.microsoft.com/ai/feed/
+    max_items: 4
+
+  - id: mistral
+    type: rss
+    url: https://mistral.ai/news/rss
+    max_items: 4
+
+  - id: allenai
+    type: rss
+    url: https://allenai.org/rss.xml
+    max_items: 4
+
+  - id: nvidia
+    type: rss
+    url: https://developer.nvidia.com/blog/feed/
+    max_items: 4
+
+  - id: nebius
+    type: html
+    url: https://nebius.com/blog
+    link_selector: 'a[href^="/blog/posts/"]'
+    max_items: 4
 
   - id: huggingface
     type: rss
     url: https://huggingface.co/blog/feed.xml
     max_items: 5
 
-  - id: githubblog
-    type: rss
-    url: https://github.blog/feed/
+  # Daily papers. Article ids start with the arXiv year, which is what keeps
+  # the selector off /papers/trending and /papers/date/...
+  - id: hfpapers
+    type: html
+    url: https://huggingface.co/papers
+    link_selector: 'a[href^="/papers/2"]'
     max_items: 5
 
   # xAI sits behind Cloudflare and returns 403 to plain HTTP even with a
@@ -98,38 +138,19 @@ sources:
     max_items: 5
     enabled: false
 
-  # -- secondary: press and aggregators -------------------------------------
+  # -- independent writing and press ---------------------------------------
 
-  - id: hackernews
+  - id: raschka
     type: rss
-    # Front page with a points floor keeps the volume sane.
-    url: https://hnrss.org/frontpage?points=150
-    max_items: 15
+    url: https://magazine.sebastianraschka.com/feed
+    max_items: 3
 
-  - id: arstechnica
+  - id: techreview
     type: rss
-    url: https://feeds.arstechnica.com/arstechnica/index
-    max_items: 10
-
-  - id: theverge
-    type: rss
-    url: https://www.theverge.com/rss/index.xml
-    max_items: 10
-
-  - id: simonwillison
-    type: rss
-    url: https://simonwillison.net/atom/everything/
-    max_items: 10
-
-  - id: krebs
-    type: rss
-    url: https://krebsonsecurity.com/feed/
+    url: https://www.technologyreview.com/feed/
     max_items: 5
 
-  # Example of a source with no feed. Needs the optional Playwright extra:
-  #   pip install -e '.[web]' && playwright install chromium
-  # - id: example-listing
-  #   type: web
-  #   url: https://example.com/news
-  #   link_selector: "article h2 a"
-  #   max_items: 5
+  - id: techcrunchai
+    type: rss
+    url: https://techcrunch.com/category/artificial-intelligence/feed/
+    max_items: 5

@@ -36,7 +36,8 @@ class Settings(BaseSettings):
 
     # --- misc --------------------------------------------------------------
     request_timeout: float = 30.0
-    seen_max_entries: int = 5000
+    # Bounded by GitHub's 65536-character issue body, not by disk.
+    seen_max_entries: int = 3500
     published_retention_days: int = 30
 
     @property

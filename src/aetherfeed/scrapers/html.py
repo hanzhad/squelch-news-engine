@@ -10,7 +10,7 @@ single GET would not have told us, so this scraper handles them instead and
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from urllib.parse import urljoin
+from urllib.parse import urldefrag, urljoin
 
 import httpx
 import lxml.html
@@ -42,7 +42,10 @@ def _collect_links(page_html: str, base_url: str, selector: str, limit: int) -> 
         href = element.get("href")
         if not href:
             continue
-        absolute = urljoin(base_url, href)
+        # Listings routinely link the same article twice, once with an anchor
+        # (#comments, #community). Dropping the fragment here saves fetching
+        # and extracting the same page a second time.
+        absolute = urldefrag(urljoin(base_url, href)).url
         if absolute in seen:
             continue
         seen.add(absolute)
