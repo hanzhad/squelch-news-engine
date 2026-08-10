@@ -5,7 +5,7 @@ articles from RSS feeds and websites, sifts them through Gemini, and publishes t
 Discord and to a static archive on GitHub Pages. No database, no server, no Docker — just
 GitHub Actions on a schedule.
 
-**Live archive: [hanzhad.github.io/squelch-news-engine](https://hanzhad.github.io/squelch-news-engine/)**
+**Live archive: [FEED](https://hanzhad.github.io/squelch-news-engine/)**
 · [RSS](https://hanzhad.github.io/squelch-news-engine/rss.xml)
 · [the queue itself](https://github.com/hanzhad/squelch-news-engine/issues)
 
