@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Sample RSS Feed</title>
+    <link>https://example.com/</link>
+    <description>Fixture feed used by the test suite.</description>
+
+    <item>
+      <title>
+        Whitespace   in    the
+        headline
+      </title>
+      <link>https://www.example.com/articles/first/?utm_source=rss&amp;utm_medium=feed</link>
+      <pubDate>Mon, 06 Jan 2025 12:30:00 +0300</pubDate>
+      <description>&lt;p&gt;Teaser with &lt;b&gt;markup&lt;/b&gt; and an entity: AT&amp;amp;T&lt;/p&gt;</description>
+    </item>
+
+    <item>
+      <title>Entry carrying a full content block</title>
+      <link>https://example.com/articles/second</link>
+      <pubDate>Tue, 07 Jan 2025 08:00:00 GMT</pubDate>
+      <description>Short teaser only.</description>
+      <content:encoded>&lt;div&gt;&lt;p&gt;Much richer body text from the content module.&lt;/p&gt;&lt;/div&gt;</content:encoded>
+    </item>
+
+    <item>
+      <title>Entry without a link is skipped</title>
+      <description>There is nothing to open here.</description>
+    </item>
+
+    <item>
+      <title>   </title>
+      <link>https://example.com/articles/fourth</link>
+      <description>Blank title, so this one is skipped too.</description>
+    </item>
+
+    <item>
+      <title>Very long headline that keeps going Very long headline that keeps going Very long headline that keeps going Very long headline that keeps going Very long headline that keeps going Very long headline that keeps going Very long headline that keeps going Very long headline that keeps going Very long headline that keeps going</title>
+      <link>https://example.com/articles/fifth</link>
+      <description>No publication date on this one.</description>
+    </item>
+
+  </channel>
+</rss>

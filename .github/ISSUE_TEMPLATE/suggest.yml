@@ -1,0 +1,45 @@
+name: Suggest a link
+description: Propose an article for the feed.
+title: "[suggestion] "
+# status:1-raw is what the scraper applies, so a suggestion joins the same LLM
+# filter queue as everything else — no separate review path, no human triage.
+labels: ["status:1-raw"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suggestions go through the same automated filter as scraped articles.
+        It looks for substantive news with concrete detail and rejects
+        speculation, opinion pieces and press releases — so a good link is
+        more likely to survive than a good argument for one.
+
+        Rejected suggestions are closed automatically. Nothing personal.
+
+  - type: input
+    id: url
+    attributes:
+      label: Link
+      description: Direct URL to the article itself, not to a feed, a thread or a paywall.
+      placeholder: https://example.com/some-article
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters
+      description: >-
+        What is concretely new here, and who it changes something for. One or
+        two sentences is plenty.
+      placeholder: First public benchmark numbers for X, and they contradict the vendor's claims.
+    validations:
+      required: true
+
+  - type: input
+    id: source
+    attributes:
+      label: Source
+      description: Optional. The publication or author, if it is not obvious from the link.
+      placeholder: Ars Technica
+    validations:
+      required: false

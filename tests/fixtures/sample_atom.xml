@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Sample Atom Feed</title>
+  <link href="https://atom.example.org/"/>
+  <updated>2025-02-11T10:00:00Z</updated>
+  <id>urn:uuid:sample-atom-feed</id>
+
+  <entry>
+    <title>Atom entry with an updated timestamp</title>
+    <link href="https://atom.example.org/posts/one/?utm_campaign=newsletter"/>
+    <id>urn:uuid:entry-one</id>
+    <updated>2025-02-11T09:30:00Z</updated>
+    <summary type="html">&lt;p&gt;Atom summary body.&lt;/p&gt;</summary>
+  </entry>
+
+  <entry>
+    <title>Atom entry without a link is skipped</title>
+    <id>urn:uuid:entry-two</id>
+    <updated>2025-02-10T09:30:00Z</updated>
+    <summary>Nothing to open.</summary>
+  </entry>
+
+</feed>

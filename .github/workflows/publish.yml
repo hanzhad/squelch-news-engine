@@ -1,0 +1,40 @@
+name: publish
+
+on:
+  schedule:
+    # Every 15 minutes, deliberately off the :00/:30 scrape and :10/:40 filter
+    # slots so the three stages do not queue behind each other on the runner.
+    - cron: "5,20,35,50 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: publish
+  # Never cancel: the window between "posted to Discord" and "labelled
+  # published" is exactly where a cancellation would cause a double post.
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Comfortably inside the 15-minute cadence, so runs never queue up.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: aetherfeed publish

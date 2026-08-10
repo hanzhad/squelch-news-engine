@@ -1,0 +1,93 @@
+# Editorial policy and source catalogue.
+#
+# `focus` is the main knob: it goes straight into the filter prompt and decides
+# what survives. Rewrite it in plain language, not keywords.
+
+# Public name of the feed: masthead, RSS channel title, digest header. This is
+# the community's brand, independent of what the repository is called.
+title: Squelch
+
+focus: |
+  Substantive news about AI, software engineering and the infrastructure around
+  them, for readers who are tired of hype.
+
+  Let through: model and tool releases with concrete capabilities or pricing,
+  technical write-ups with real detail, security incidents and vulnerabilities,
+  infrastructure and outage post-mortems, funding or policy news that visibly
+  changes what practitioners can build, and honest negative results.
+
+  Filter out: speculation about the future with no new facts, "X will change
+  everything" opinion pieces, listicles and prompt-tip roundups, course and
+  newsletter promotion, repackaged press releases with nothing added, personal
+  branding threads, and anything whose whole content is an unnamed source
+  claiming a model is coming.
+
+# The LLM may only tag from this list, which keeps the label set finite.
+topics:
+  - models
+  - tooling
+  - research
+  - security
+  - infrastructure
+  - product
+  - policy
+  - open-source
+  - hardware
+
+# Article text handed to the LLM is truncated to this many characters.
+max_body_chars: 8000
+
+sources:
+  - id: hackernews
+    type: rss
+    # Front page with a points floor keeps the volume sane.
+    url: https://hnrss.org/frontpage?points=150
+    max_items: 15
+
+  - id: arstechnica
+    type: rss
+    url: https://feeds.arstechnica.com/arstechnica/index
+    max_items: 10
+
+  - id: theverge
+    type: rss
+    url: https://www.theverge.com/rss/index.xml
+    max_items: 10
+
+  - id: simonwillison
+    type: rss
+    url: https://simonwillison.net/atom/everything/
+    max_items: 10
+
+  - id: googleai
+    type: rss
+    url: https://blog.google/technology/ai/rss/
+    max_items: 5
+
+  - id: openai
+    type: rss
+    url: https://openai.com/news/rss.xml
+    max_items: 5
+
+  - id: githubblog
+    type: rss
+    url: https://github.blog/feed/
+    max_items: 5
+
+  - id: krebs
+    type: rss
+    url: https://krebsonsecurity.com/feed/
+    max_items: 5
+
+  - id: huggingface
+    type: rss
+    url: https://huggingface.co/blog/feed.xml
+    max_items: 5
+
+  # Example of a source with no feed. Needs the optional Playwright extra:
+  #   pip install -e '.[web]' && playwright install chromium
+  # - id: example-listing
+  #   type: web
+  #   url: https://example.com/news
+  #   link_selector: "article h2 a"
+  #   max_items: 5

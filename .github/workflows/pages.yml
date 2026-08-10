@@ -1,0 +1,73 @@
+name: pages
+
+on:
+  workflow_run:
+    # Rebuild after new articles land, rather than on a clock: publish is the
+    # only stage that changes what the archive shows.
+    workflows: ["publish"]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  # A Pages deployment that is cancelled mid-flight can leave the live site on
+  # a half-uploaded artifact, so queue instead of cancelling.
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # workflow_run fires for failed runs too; there is nothing new to publish
+    # then. Manual dispatch carries no workflow_run payload, hence the first arm.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # The site is rendered from the published issues.
+      issues: read
+      # configure-pages only reads the Pages config (enablement defaults to
+      # false), so the build job never needs pages:write.
+      pages: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Build site
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: aetherfeed build-site --out site/out
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/out
+          # Since v4 this action drops dotfiles by default, which would silently
+          # swallow a .nojekyll or similar emitted by the builder.
+          include-hidden-files: true
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

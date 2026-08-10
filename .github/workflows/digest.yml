@@ -1,0 +1,48 @@
+name: digest
+
+on:
+  schedule:
+    # Monday morning UTC, once the week it summarises is actually over.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Read for the digest, write for the retention sweep that follows it.
+  issues: write
+
+concurrency:
+  group: digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Weekly digest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: aetherfeed digest --days 7
+
+      # Housekeeping rides along with the weekly run: closing old published
+      # issues is the one thing that keeps the issue list usable long-term, and
+      # it is unrelated enough to the digest that a failed digest must not skip
+      # it. Idempotent, so a missed week costs nothing.
+      - name: Close issues past the retention window
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: aetherfeed retention

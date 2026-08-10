@@ -1,0 +1,10 @@
+# Issues are the pipeline's database, so a blank issue is an unlabelled record
+# that no stage knows what to do with. Everything else belongs in Discussions.
+blank_issues_enabled: false
+contact_links:
+  - name: Questions, feedback and bug reports
+    url: https://github.com/hanzhad/squelch-news-engine/discussions
+    about: Anything that is not a link suggestion. Please do not open an issue for it.
+  - name: Editorial policy
+    url: https://github.com/hanzhad/squelch-news-engine/blob/main/config/sources.yaml
+    about: What the filter lets through, and the list of sources it scrapes.

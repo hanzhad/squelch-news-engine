@@ -1,0 +1,63 @@
+name: scrape
+
+on:
+  schedule:
+    # Every 30 minutes, on the hour and the half hour. The filter runs ten
+    # minutes later so it always sees the issues this run just created.
+    - cron: "0,30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  # The only workflow that writes to the repository: it commits data/seen.json.
+  contents: write
+  issues: write
+
+concurrency:
+  group: scrape
+  # Never cancel. A killed run loses the seen-ledger write for issues it has
+  # already created, and the next run would re-create them as duplicates.
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Enough history for the rebase below to find a common ancestor
+          # without paying for a full clone of a repo that gets a commit
+          # every half hour.
+          fetch-depth: 10
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          # No requirements.txt here; the action falls back to pyproject.toml.
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Scrape
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: aetherfeed scrape
+
+      - name: Commit seen ledger
+        run: |
+          set -euo pipefail
+          # --porcelain rather than `git diff`, so the very first run — when the
+          # file is still untracked — is not mistaken for "unchanged".
+          if [ -z "$(git status --porcelain -- data/seen.json)" ]; then
+            echo "ledger unchanged, nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/seen.json
+          git commit -m "chore: update seen ledger [skip ci]"
+          # Someone may have pushed since checkout; rebase our single commit on
+          # top of them rather than failing the push.
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

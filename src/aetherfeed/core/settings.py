@@ -1,0 +1,53 @@
+"""Runtime settings — everything that comes from the environment."""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # --- credentials -------------------------------------------------------
+    github_token: str = Field(default="", validation_alias="GITHUB_TOKEN")
+    # Actions sets this to "owner/repo" automatically.
+    github_repository: str = Field(default="", validation_alias="GITHUB_REPOSITORY")
+    gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
+    gemini_model: str = Field(default="gemini-3.6-flash", validation_alias="GEMINI_MODEL")
+    discord_webhook_url: str = Field(default="", validation_alias="DISCORD_WEBHOOK_URL")
+
+    # --- throughput --------------------------------------------------------
+    # GitHub throttles *content creation* (issues, comments) far below the
+    # 5000 req/h REST budget, so the scraper deliberately leaves work on the
+    # table and picks it up on the next cron tick.
+    scrape_max_new_issues: int = 15
+    scrape_delay_seconds: float = 2.0
+
+    # Gemini free tier is measured in requests per minute; one call per article
+    # with a pause between them keeps us clear of it.
+    llm_batch_size: int = 20
+    llm_delay_seconds: float = 5.0
+
+    publish_batch_size: int = 10
+    publish_delay_seconds: float = 2.0
+
+    # --- misc --------------------------------------------------------------
+    request_timeout: float = 30.0
+    seen_max_entries: int = 5000
+    published_retention_days: int = 30
+
+    @property
+    def repo_owner(self) -> str:
+        return self.github_repository.split("/", 1)[0]
+
+    @property
+    def repo_name(self) -> str:
+        return self.github_repository.split("/", 1)[1]
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

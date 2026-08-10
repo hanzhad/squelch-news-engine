@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<meta name="description" content="{{ tagline }}">
+{% if topics %}
+<meta name="keywords" content="{{ topics | join(', ') }}">
+{% endif %}
+<link rel="stylesheet" href="{{ stylesheet }}">
+<link rel="alternate" type="application/rss+xml" title="{{ title }}" href="{{ feed_url }}">
+</head>
+<body>
+<header class="masthead">
+  <h1>{{ title }}</h1>
+  <p class="tagline">{{ tagline }}</p>
+  <p class="mast-meta">
+    <a href="{{ feed_url }}">RSS</a>
+    {% if repo_url %}
+    <span class="sep">·</span> <a href="{{ repo_url }}">Repository</a>
+    {% endif %}
+    <span class="sep">·</span> {{ articles | length }}
+    article{{ '' if articles | length == 1 else 's' }}
+  </p>
+</header>
+
+<main>
+{% for article in articles %}
+  <article class="entry">
+    <h2 class="entry-title"><a href="{{ article.url }}">{{ article.title }}</a></h2>
+    <p class="byline">
+      <time datetime="{{ article.published.isoformat() }}">
+        {{- article.published | human_date -}}
+      </time>
+      {% if article.source %}
+      <span class="sep">·</span> <span class="source">{{ article.source }}</span>
+      {% endif %}
+      {% if article.score %}
+      <span class="sep">·</span>
+      <span class="score" title="Importance, 0-10">{{ article.score }}/10</span>
+      {% endif %}
+    </p>
+    {% if article.summary %}
+    <p class="summary">{{ article.summary }}</p>
+    {% endif %}
+    <p class="entry-foot">
+      {% for tag in article.tags %}
+      <span class="tag">{{ tag }}</span>
+      {% endfor %}
+      {% if article.issue_url %}
+      <a class="discuss" href="{{ article.issue_url }}">Discuss #{{ article.number }}</a>
+      {% endif %}
+    </p>
+  </article>
+{% else %}
+  <p class="empty">Nothing published yet.</p>
+{% endfor %}
+</main>
+
+<footer class="colophon">
+  <p>Built {{ built_at | human_date }} by aetherfeed. Every article here is a GitHub issue.</p>
+</footer>
+</body>
+</html>
