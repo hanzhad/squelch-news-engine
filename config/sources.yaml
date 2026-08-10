@@ -38,6 +38,68 @@ topics:
 max_body_chars: 8000
 
 sources:
+  # -- primary sources: the labs and vendors themselves ---------------------
+
+  # Anthropic publishes no feed, but the newsroom is server-rendered, so it
+  # needs a selector rather than a browser.
+  - id: anthropic
+    type: html
+    url: https://www.anthropic.com/news
+    link_selector: 'a[href^="/news/"]'
+    max_items: 8
+
+  - id: openai
+    type: rss
+    url: https://openai.com/news/rss.xml
+    max_items: 5
+
+  - id: googleai
+    type: rss
+    url: https://blog.google/technology/ai/rss/
+    max_items: 5
+
+  - id: deepmind
+    type: rss
+    url: https://deepmind.google/blog/rss.xml
+    max_items: 5
+
+  - id: googleresearch
+    type: rss
+    url: https://research.google/blog/rss/
+    max_items: 5
+
+  - id: microsoft
+    type: rss
+    url: https://blogs.microsoft.com/feed/
+    max_items: 5
+
+  - id: azure
+    type: rss
+    url: https://azure.microsoft.com/en-us/blog/feed/
+    max_items: 5
+
+  - id: huggingface
+    type: rss
+    url: https://huggingface.co/blog/feed.xml
+    max_items: 5
+
+  - id: githubblog
+    type: rss
+    url: https://github.blog/feed/
+    max_items: 5
+
+  # xAI sits behind Cloudflare and returns 403 to plain HTTP even with a
+  # browser user agent, so it needs a real browser and may still be blocked
+  # from CI addresses. Left off until that is settled.
+  - id: xai
+    type: web
+    url: https://x.ai/news
+    link_selector: 'a[href^="/news/"]'
+    max_items: 5
+    enabled: false
+
+  # -- secondary: press and aggregators -------------------------------------
+
   - id: hackernews
     type: rss
     # Front page with a points floor keeps the volume sane.
@@ -59,29 +121,9 @@ sources:
     url: https://simonwillison.net/atom/everything/
     max_items: 10
 
-  - id: googleai
-    type: rss
-    url: https://blog.google/technology/ai/rss/
-    max_items: 5
-
-  - id: openai
-    type: rss
-    url: https://openai.com/news/rss.xml
-    max_items: 5
-
-  - id: githubblog
-    type: rss
-    url: https://github.blog/feed/
-    max_items: 5
-
   - id: krebs
     type: rss
     url: https://krebsonsecurity.com/feed/
-    max_items: 5
-
-  - id: huggingface
-    type: rss
-    url: https://huggingface.co/blog/feed.xml
     max_items: 5
 
   # Example of a source with no feed. Needs the optional Playwright extra:

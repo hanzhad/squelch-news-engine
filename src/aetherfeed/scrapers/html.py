@@ -1,0 +1,102 @@
+"""Listing pages that are server-rendered and therefore need no browser.
+
+Plenty of vendor newsrooms — Anthropic's among them — ship their index as plain
+HTML with every article link already in the markup. Driving Playwright at those
+costs a chromium download and a minute of CI time per run to learn nothing a
+single GET would not have told us, so this scraper handles them instead and
+``web.py`` is reserved for pages that genuinely need JavaScript.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from urllib.parse import urljoin
+
+import httpx
+import lxml.html
+import trafilatura
+
+from ..core.config import Config, Source
+from ..core.log import get_logger
+from ..core.models import RawArticle
+from .extract import extract_from_html
+
+log = get_logger(__name__)
+
+
+def _parse_date(raw: str | None) -> datetime | None:
+    """trafilatura reports dates as YYYY-MM-DD; anything else is not worth guessing."""
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw[:10], "%Y-%m-%d").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def _collect_links(page_html: str, base_url: str, selector: str, limit: int) -> list[str]:
+    document = lxml.html.fromstring(page_html)
+    found: list[str] = []
+    seen: set[str] = set()
+    for element in document.cssselect(selector):
+        href = element.get("href")
+        if not href:
+            continue
+        absolute = urljoin(base_url, href)
+        if absolute in seen:
+            continue
+        seen.add(absolute)
+        found.append(absolute)
+        if len(found) >= limit:
+            break
+    return found
+
+
+def scrape(source: Source, config: Config, client: httpx.Client) -> list[RawArticle]:
+    if not source.link_selector:
+        log.error("source %s is type 'html' but has no link_selector", source.id)
+        return []
+
+    try:
+        response = client.get(source.url)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        log.error("source %s unreachable: %s", source.id, exc)
+        return []
+
+    links = _collect_links(response.text, source.url, source.link_selector, source.max_items)
+    if not links:
+        log.warning("source %s matched no links for %r", source.id, source.link_selector)
+        return []
+
+    articles: list[RawArticle] = []
+    for url in links:
+        try:
+            page = client.get(url)
+            page.raise_for_status()
+        except httpx.HTTPError as exc:
+            log.warning("could not fetch %s: %s", url, exc)
+            continue
+
+        body = extract_from_html(page.text, url)
+        metadata = trafilatura.extract_metadata(page.text, default_url=url)
+        title = (metadata.title if metadata else "") or ""
+        if not body or not title.strip():
+            log.debug("nothing extractable at %s", url)
+            continue
+
+        try:
+            articles.append(
+                RawArticle(
+                    title=title,
+                    url=url,
+                    source=source.id,
+                    published_at=_parse_date(metadata.date if metadata else None),
+                    body=body[: config.max_body_chars],
+                )
+            )
+        except ValueError as exc:
+            log.warning("skipping %s: %s", url, exc)
+
+    log.info("source %s yielded %d entries", source.id, len(articles))
+    return articles

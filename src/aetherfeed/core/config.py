@@ -13,7 +13,7 @@ CONFIG_PATH = Path("config/sources.yaml")
 
 class Source(BaseModel):
     id: str
-    type: Literal["rss", "web"] = "rss"
+    type: Literal["rss", "html", "web"] = "rss"
     url: str
     enabled: bool = True
     # Follow the link and extract the full article text instead of trusting the
@@ -21,8 +21,8 @@ class Source(BaseModel):
     fetch_full_text: bool = True
     # Hard cap on items taken from this source per run.
     max_items: int = 10
-    # For type: web — CSS selector matching the article links on the listing
-    # page. Everything it matches is treated as an article to extract.
+    # For type: html and web — CSS selector matching the article links on the
+    # listing page. Everything it matches is treated as an article to extract.
     link_selector: str | None = None
 
 
