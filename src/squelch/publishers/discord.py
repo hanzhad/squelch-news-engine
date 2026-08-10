@@ -99,8 +99,19 @@ def _fit_embeds(embeds: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _with_wait(url: str) -> str:
-    """Force ``wait=true`` so the response body carries the created message."""
+    """Force ``wait=true`` so the response body carries the created message.
+
+    Also the only place the webhook URL is checked. A secret pasted without its
+    scheme reaches httpx as a bare host and dies in a traceback five frames
+    deep, long after the digest has been written — so the shape is rejected
+    here, before any work is done, with a message that says what to fix.
+    """
     parts = urlsplit(url.strip())
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise DiscordError(
+            "webhook URL must start with https:// and name a host "
+            f"(got {url.strip()[:40]!r}) — re-copy it from the channel's integration settings"
+        )
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
     query["wait"] = "true"
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))

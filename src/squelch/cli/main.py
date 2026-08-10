@@ -157,10 +157,16 @@ def publish() -> None:
     settings = _boot()
     _require(settings, "DISCORD_WEBHOOK_URL")
 
-    from ..publishers.discord import publish_ready
+    from ..publishers.discord import DiscordError, publish_ready
 
-    with _store(settings) as store:
-        sent = publish_ready(settings, store)
+    try:
+        with _store(settings) as store:
+            sent = publish_ready(settings, store)
+    except DiscordError as exc:
+        # A misconfigured webhook is a setup problem, not a crash to read a
+        # traceback for.
+        log.error("discord: %s", exc)
+        raise typer.Exit(1) from exc
     log.info("publish done: %d articles sent", sent)
 
 
@@ -199,7 +205,7 @@ def digest(
         raise typer.Exit(1)
 
     from ..llm.digest import DigestError, build_digest
-    from ..publishers.discord import post_digest
+    from ..publishers.discord import DiscordError, post_digest
 
     try:
         with _store(settings) as store:
@@ -215,7 +221,11 @@ def digest(
         log.info("nothing published in the last %d days, no digest to send", days)
         return
 
-    post_digest(settings, result)
+    try:
+        post_digest(settings, result)
+    except DiscordError as exc:
+        log.error("discord: %s", exc)
+        raise typer.Exit(1) from exc
     log.info("digest done: %s", result.headline)
 
 
