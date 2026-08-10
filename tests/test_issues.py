@@ -57,9 +57,9 @@ def test_round_trip_without_a_summary_yields_an_empty_summary() -> None:
 
 
 def test_round_trip_preserves_unicode() -> None:
-    meta = make_meta(source="хабр", verdict_reason="Есть конкретика — цены и бенчмарки")
-    original = "Заголовок статьи.\n\nТекст со спецсимволами: «кавычки», тире — и эмодзи 🚀."
-    summary = "Краткое содержание на русском языке."
+    meta = make_meta(source="golem", verdict_reason="Concrete pricing — and benchmarks")
+    original = "Überschrift.\n\nText with «quotes», an em dash — 日本語, and an emoji 🚀."
+    summary = "A summary carrying non-ASCII: café, naïve, 漢字."
 
     meta_out, summary_out, original_out = parse_body(render_body(meta, original, summary))
 

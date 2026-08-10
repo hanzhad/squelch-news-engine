@@ -23,7 +23,7 @@ def new_http_client(timeout: float) -> httpx.Client:
     return httpx.Client(
         timeout=timeout,
         follow_redirects=True,
-        headers={"User-Agent": USER_AGENT, "Accept-Language": "en,ru;q=0.8"},
+        headers={"User-Agent": USER_AGENT, "Accept-Language": "en"},
     )
 
 

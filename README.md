@@ -1,114 +1,116 @@
 # Squelch
 
-Бессерверный новостной конвейер, который живёт целиком внутри одного GitHub-репозитория:
-собирает статьи из RSS и с сайтов, просеивает их через Gemini, публикует выжившее в Discord
-и в статический архив на GitHub Pages. Ни базы данных, ни сервера, ни докера — только GitHub
-Actions по расписанию.
+A serverless news pipeline that lives entirely inside one GitHub repository: it collects
+articles from RSS feeds and websites, sifts them through Gemini, and publishes the survivors to
+Discord and to a static archive on GitHub Pages. No database, no server, no Docker — just
+GitHub Actions on a schedule.
 
-## Идея: Issues — это база данных
+**Live archive: [hanzhad.github.io/squelch-news-engine](https://hanzhad.github.io/squelch-news-engine/)**
+· [RSS](https://hanzhad.github.io/squelch-news-engine/rss.xml)
+· [the queue itself](https://github.com/hanzhad/squelch-news-engine/issues)
 
-Одна статья = одна задача (issue). Метаданные лежат в YAML-блоке внутри HTML-комментария в
-начале тела задачи: GitHub его не отображает, а мы умеем читать и переписывать. Лейблы — это
-конечный автомат, и именно они, а не какая-то внешняя таблица, являются источником правды о
-состоянии статьи.
+## The idea: Issues are the database
+
+One article is one issue. Metadata lives in a YAML block inside an HTML comment at the top of
+the issue body: GitHub does not render it, and we know how to read and rewrite it. Labels are
+the state machine, and they — not some external table — are the source of truth about where an
+article stands.
 
 ```
 status:1-raw  ──filter──▶  status:2-ready  ──publish──▶  status:3-published
       │
-      └──filter──▶  status:rejected   (задача закрывается как not planned)
+      └──filter──▶  status:rejected   (issue closed as not planned)
 ```
 
-Дополнительно на задачу вешаются `source:<id>` (откуда пришла) и `topic:<tag>` (о чём она,
-теги выбирает LLM из списка в конфиге).
+Issues additionally carry `source:<id>` (where it came from) and `topic:<tag>` (what it is
+about — the LLM picks tags from the list in the config).
 
-Что это даёт бесплатно:
+What this buys for free:
 
-- **Просмотр и правки руками.** Список задач — это админка. Не нравится вердикт LLM —
-  поменяйте лейбл, и следующий прогон подхватит статью в новом состоянии.
-- **История.** У каждой задачи есть таймлайн правок, у репозитория — git-история.
-- **Приём материалов от людей.** Задача, открытая руками, не имеет ни блока метаданных, ни
-  маркера оригинала: конвейер в этом случае берёт в работу всё тело задачи как есть.
-- **Ноль инфраструктуры.** Хранилище, аутентификация и планировщик — это GitHub.
+- **Reviewing and editing by hand.** The issue list is the admin panel. Disagree with the LLM's
+  verdict? Change the label, and the next run picks the article up in its new state.
+- **History.** Every issue has an edit timeline, and the repository has a git history.
+- **Submissions from people.** An issue opened by hand has neither a metadata block nor an
+  original-text marker, so the pipeline takes the whole issue body as the article text.
+- **Zero infrastructure.** Storage, authentication and scheduling are GitHub's problem.
 
-Дедупликация при этом на Issues не завязана: поисковый индекс GitHub отстаёт от записи на
-секунды-минуты, поэтому «поищи перед созданием» проигрывает гонки и плодит дубли. Вместо
-этого скрапер ведёт собственный журнал уже виденных uid в `data/seen.json` и коммитит его
-обратно в репозиторий после каждого прогона. uid — это хеш от канонизированного URL
-(`src/aetherfeed/core/urls.py`): utm-метки, `fbclid`, `www.`, порт по умолчанию, якорь и
-порядок query-параметров на него не влияют, поэтому одна и та же статья из трёх разных лент
-даёт один uid.
+Deduplication deliberately does *not* rely on Issues: GitHub's search index lags writes by
+seconds to minutes, so "search before creating" loses races and produces duplicates. Instead
+the scraper keeps its own ledger of already-seen uids in `data/seen.json` and commits it back
+to the repository after every run. A uid is a hash of the canonicalized URL
+(`src/aetherfeed/core/urls.py`): utm parameters, `fbclid`, `www.`, a default port, the fragment
+and query-parameter order do not affect it, so the same article arriving from three different
+feeds yields one uid.
 
-## Четыре конвейера
+## The four pipelines
 
-Каждый конвейер — это отдельный workflow в `.github/workflows/`, запускаемый по cron и
-вручную через **Actions → Run workflow**.
+Each pipeline is its own workflow in `.github/workflows/`, triggered by cron and manually via
+**Actions → Run workflow**.
 
-| Конвейер | Workflow | Что делает | Расписание |
+| Pipeline | Workflow | What it does | Schedule |
 | --- | --- | --- | --- |
-| Сбор | `scrape.yml` | Обходит включённые источники, отсекает уже виденные uid, создаёт задачи с `status:1-raw`, дописывает `data/seen.json` | `0,30 * * * *` |
-| Фильтр | `filter.yml` | Отдаёт каждую сырую задачу в Gemini вместе с `focus` из конфига, получает вердикт: `status:2-ready` + саммари + теги, либо `status:rejected` и закрытие | `10,40 * * * *` |
-| Публикация | `publish.yml` | Отправляет готовые статьи в Discord-вебхук и переводит их в `status:3-published` | `5,20,35,50 * * * *` |
-| Дайджест | `digest.yml` | Собирает из опубликованного за неделю обзор с трендами, затем закрывает задачи старше окна хранения | `0 9 * * 1` |
+| Scrape | `scrape.yml` | Walks the enabled sources, drops already-seen uids, opens issues labelled `status:1-raw`, appends to `data/seen.json` | `0,30 * * * *` |
+| Filter | `filter.yml` | Sends each raw issue to Gemini together with `focus` from the config and gets a verdict: `status:2-ready` plus a summary and tags, or `status:rejected` and closure | `10,40 * * * *` |
+| Publish | `publish.yml` | Sends ready articles to the Discord webhook and moves them to `status:3-published` | `5,20,35,50 * * * *` |
+| Digest | `digest.yml` | Builds a weekly roundup with trends out of what was published, then closes issues past the retention window | `0 9 * * 1` |
 
-Смещения выбраны так, чтобы фильтр всегда заставал задачи, созданные сбором десятью
-минутами раньше, а публикация не попадала в один слот ни с тем, ни с другим.
+The offsets are chosen so the filter always finds the issues the scraper created ten minutes
+earlier, and so publishing never shares a slot with either.
 
-Плюс `pages.yml` — сборка статического архива из опубликованных задач (`site/templates/` →
-`site/out/`) и деплой на GitHub Pages.
+There is also `pages.yml` — it renders the static archive from published issues
+(`site/templates/` → `site/out/`) and deploys it to GitHub Pages.
 
-Все конвейеры устроены так, чтобы не пытаться сделать всю работу за один прогон: у сбора,
-фильтра и публикации есть свои лимиты на пачку, остаток дожидается следующего тика cron.
-Это сделано намеренно — GitHub душит массовое создание контента, а бесплатный Gemini считает
-запросы в минуту.
+None of the pipelines tries to do all the work in one run: scraping, filtering and publishing
+each cap their batch and leave the remainder for the next tick. This is deliberate — GitHub
+throttles bulk content creation, and the free Gemini tier counts requests per minute.
 
-## Быстрый старт
+## Quick start
 
-1. **Создайте репозиторий** — форк этого или новый из его содержимого. Держите его
-   **публичным**: тогда минуты GitHub Actions не тратятся, а GitHub Pages доступен на
-   бесплатном тарифе.
+1. **Create the repository** — fork this one or start a new one from its contents. Keep it
+   **public**: that way GitHub Actions minutes are not billed and GitHub Pages is available on
+   the free plan.
 
-2. **Пропишите секреты** в *Settings → Secrets and variables → Actions → New repository
+2. **Add the secrets** under *Settings → Secrets and variables → Actions → New repository
    secret*:
-   - `GEMINI_API_KEY` — ключ из Google AI Studio;
-   - `DISCORD_WEBHOOK_URL` — вебхук нужного канала (*Настройки канала → Интеграции →
-     Вебхуки*).
+   - `GEMINI_API_KEY` — a key from Google AI Studio;
+   - `DISCORD_WEBHOOK_URL` — the webhook of the target channel (*Channel settings →
+     Integrations → Webhooks*).
 
-   `GITHUB_TOKEN` и `GITHUB_REPOSITORY` Actions подставляет сам, заводить их не нужно.
+   `GITHUB_TOKEN` and `GITHUB_REPOSITORY` are supplied by Actions itself; do not create them.
 
-3. **Разрешите workflow писать в репозиторий.** *Settings → Actions → General → Workflow
-   permissions → Read and write permissions*. Без этого нельзя ни редактировать задачи, ни
-   коммитить `data/seen.json`.
+3. **Let workflows write to the repository.** *Settings → Actions → General → Workflow
+   permissions → Read and write permissions*. Without this the pipeline can neither edit issues
+   nor commit `data/seen.json`.
 
-4. **Один раз создайте лейблы.** Лейблы — это конечный автомат, и им нужны осмысленные цвета
-   и описания, иначе GitHub придумает их сам при первом использовании:
+4. **Create the labels once.** Labels are the state machine, and they need meaningful colours
+   and descriptions — otherwise GitHub invents them on first use:
 
    ```bash
    pip install -e .
-   export GITHUB_TOKEN=<personal access token с доступом к issues репозитория>
+   export GITHUB_TOKEN=<personal access token with issues access to the repo>
    export GITHUB_REPOSITORY=<owner/repo>
    aetherfeed bootstrap-labels
    ```
 
-   Команда идемпотентна: её можно (и нужно) прогонять снова после правки `topics` или списка
-   источников в конфиге. Альтернатива — запустить её же из Actions, если в workflow есть
-   ручной триггер.
+   The command is idempotent: run it again after editing `topics` or the source list in the
+   config. Alternatively run it from Actions, if the workflow has a manual trigger.
 
-5. **Включите GitHub Pages.** *Settings → Pages → Source → **GitHub Actions*** (не «Deploy
-   from a branch»). Архив появится после первого успешного прогона `pages.yml`.
+5. **Enable GitHub Pages.** *Settings → Pages → Source → **GitHub Actions*** (not "Deploy from
+   a branch"). The archive appears after the first successful `pages.yml` run.
 
-6. **Отредактируйте `config/sources.yaml`** под свою тему (см. ниже) и запустите `scrape.yml`
-   руками, чтобы посмотреть, что получится.
+6. **Edit `config/sources.yaml`** for your subject (see below) and run `scrape.yml` by hand to
+   see what comes out.
 
-## Настройка: `config/sources.yaml`
+## Configuration: `config/sources.yaml`
 
-Весь редакторский вкус живёт в одном файле. Кода менять не нужно.
+All the editorial judgement lives in one file. No code changes needed.
 
-### `focus` — главный рычаг
+### `focus` — the main knob
 
-Текст `focus` уходит в промпт фильтра целиком, поэтому он решает, что вообще выживет.
-Пишите его человеческим языком, а не ключевыми словами, и обязательно двумя списками — что
-пропускать и что резать. Расплывчатый `focus` («интересное про технологии») даёт ленту, полную
-шума; конкретный работает предсказуемо.
+The `focus` text goes into the filter prompt verbatim, so it decides what survives at all.
+Write it in plain language rather than keywords, and always as two lists — what to let through
+and what to cut. A vague `focus` ("interesting tech stuff") produces a feed full of noise; a
+specific one behaves predictably.
 
 ```yaml
 focus: |
@@ -121,87 +123,90 @@ focus: |
   press releases.
 ```
 
-Если лента пропускает мусор — правьте `focus`, а не порог и не код.
+If the feed lets junk through, fix `focus` — not a threshold, and not the code.
 
-### `topics` — границы набора лейблов
+### `topics` — the bounds of the label set
 
-LLM разрешено ставить теги только из этого списка, поэтому набор лейблов `topic:*` в
-репозитории остаётся конечным. После добавления темы прогоните `aetherfeed bootstrap-labels`,
-чтобы лейбл появился с нормальным цветом.
+The LLM may only apply tags from this list, which keeps the set of `topic:*` labels in the
+repository finite. After adding a topic, run `aetherfeed bootstrap-labels` so the label appears
+with a proper colour.
 
-### Добавить RSS-источник
+### Adding an RSS source
 
 ```yaml
 sources:
-  - id: lwn                      # станет лейблом source:lwn — латиница, без пробелов
+  - id: lwn                      # becomes the label source:lwn — ASCII, no spaces
     type: rss
     url: https://lwn.net/headlines/newrss
-    max_items: 5                 # жёсткий потолок на прогон
-    fetch_full_text: true        # сходить по ссылке за полным текстом (+1 HTTP-запрос)
-    enabled: true                # можно временно выключить, не удаляя
+    max_items: 5                 # hard cap per run
+    fetch_full_text: true        # follow the link for the full text (+1 HTTP request)
+    enabled: true                # can be switched off without deleting
 ```
 
-`fetch_full_text: true` имеет смысл там, где в ленте только тизер: полный текст берётся, если
-он оказался длиннее того, что дала лента. Для источников с полным текстом в ленте его можно
-выключить и сэкономить запросы.
+`fetch_full_text: true` earns its keep where the feed carries only a teaser: the full text is
+used if it turns out longer than what the feed gave. For sources that publish full text in the
+feed, switch it off and save the requests.
 
-### Добавить сайт без ленты
+### Adding a site with no feed
 
 ```yaml
   - id: example-listing
     type: web
     url: https://example.com/news
-    link_selector: "article h2 a"   # CSS-селектор ссылок на статьи со страницы-списка
+    link_selector: "article h2 a"   # CSS selector for article links on the listing page
     max_items: 5
 ```
 
-Для типа `web` нужен опциональный экстра с Playwright:
+The `web` type needs the optional Playwright extra:
 
 ```bash
 pip install -e '.[web]'
 playwright install chromium
 ```
 
-Скрапер намеренно примитивен: страница-список плюс селектор ссылок. Пагинация, логины и
-бесконечная прокрутка сюда не влезают — под такое пишется отдельный скрапер.
+This scraper is deliberately primitive: a listing page plus a link selector. Pagination, logins
+and infinite scroll do not fit here — those call for a purpose-built scraper.
 
-### Остальное
+### The rest
 
-`max_body_chars` — до скольких символов обрезается текст статьи перед отправкой в LLM.
-Больше символов = дороже и медленнее, 8000 обычно хватает.
+`max_body_chars` is how far the article text is truncated before it goes to the LLM. More
+characters mean slower and more expensive calls; 8000 is usually enough.
 
-## Локальная разработка
+`title` is the public name of the feed — masthead, RSS channel and digest header. It is kept
+separate from the repository name so the brand can change without renaming the engine.
+
+## Local development
 
 ```bash
 pip install -e '.[dev]'
 
-pytest                 # тесты офлайн: фикстуры лент и поддельные HTTP-клиенты
-ruff check .           # линт (line-length 100, py312)
+pytest                 # tests run offline: feed fixtures and fake HTTP clients
+ruff check .           # lint (line-length 100, py312)
 ruff check . --fix
 ```
 
-Команды CLI (console script из `pyproject.toml` — `aetherfeed`):
+CLI commands (the console script from `pyproject.toml` is `aetherfeed`):
 
-| Команда | Назначение |
+| Command | Purpose |
 | --- | --- |
-| `aetherfeed scrape` | обойти источники и завести задачи |
-| `aetherfeed filter` | прогнать сырые задачи через LLM |
-| `aetherfeed publish` | отправить готовые в Discord |
-| `aetherfeed digest` | собрать недельный дайджест |
-| `aetherfeed build-site` | отрисовать статический архив |
-| `aetherfeed bootstrap-labels` | создать/обновить лейблы по конфигу |
-| `aetherfeed retention` | подчистить старые опубликованные задачи |
+| `aetherfeed scrape` | walk the sources and open issues |
+| `aetherfeed filter` | run raw issues through the LLM |
+| `aetherfeed publish` | send ready articles to Discord |
+| `aetherfeed digest` | build the weekly digest |
+| `aetherfeed build-site` | render the static archive |
+| `aetherfeed bootstrap-labels` | create or repair labels from the config |
+| `aetherfeed retention` | close old published issues |
 
-Перед боевым запуском смотрите, что команда собирается сделать, в режиме без записи:
+Before running for real, see what a command intends to do without writing anything:
 
 ```bash
 aetherfeed scrape --dry-run
 ```
 
-Точный список флагов у каждой команды — `aetherfeed <команда> --help`.
+For the exact flags of any command, use `aetherfeed <command> --help`.
 
-Переменные окружения читаются через pydantic-settings, поэтому локально удобно держать файл
-`.env` (он в `.gitignore`):
+Environment variables are read through pydantic-settings, so a local `.env` file is convenient
+(it is in `.gitignore`):
 
 ```
 GITHUB_TOKEN=...
@@ -210,40 +215,40 @@ GEMINI_API_KEY=...
 DISCORD_WEBHOOK_URL=...
 ```
 
-Там же переопределяются пороги из `src/aetherfeed/core/settings.py` — например
+The same file overrides the thresholds in `src/aetherfeed/core/settings.py` — for example
 `SCRAPE_MAX_NEW_ISSUES`, `LLM_DELAY_SECONDS`, `SEEN_MAX_ENTRIES`, `GEMINI_MODEL`,
-`PUBLISHED_RETENTION_DAYS`. Значения секретов никогда не коммитятся: в репозитории живут
-только их имена.
+`PUBLISHED_RETENTION_DAYS`. Secret values are never committed: only their names live in the
+repository.
 
-## Известные ограничения
+## Known limitations
 
-Честный список — это не баги, которые вот-вот починят, а следствия выбранной архитектуры.
+An honest list. These are not bugs about to be fixed — they follow from the architecture.
 
-- **Публикация в Discord и смена лейбла — не одна транзакция.** Сообщение уходит в вебхук,
-  и только потом задача переводится в `status:3-published`. Если прогон упадёт (или Actions
-  прибьют по таймауту) между этими двумя действиями, статья останется `status:2-ready` и на
-  следующем прогоне уедет в Discord повторно. Дубль в канале — цена того, что мы не теряем
-  публикации; обратный порядок терял бы их.
-- **Журнал дедупликации — скользящее окно.** В `data/seen.json` хранятся только последние
-  `SEEN_MAX_ENTRIES` (по умолчанию 5000) uid. Источник, молчавший очень долго, может
-  вытолкнуть свои старые записи из окна чужими — и тогда давняя статья вернётся как новая.
-  Лечится увеличением окна, но файл растёт и коммитится каждый прогон.
-- **Потолок пропускной способности — лимиты бесплатного Gemini.** Именно они, а не GitHub и
-  не источники, определяют, сколько статей в день реально проходит фильтр: один вызов на
-  статью плюс пауза между вызовами (`LLM_DELAY_SECONDS`, по умолчанию 5 секунд). Хотите
-  больше — платный ключ или более дешёвая модель, а не более частый cron.
-- **GitHub душит массовое создание контента** отдельно от лимита в 5000 запросов в час, без
-  предупреждения и с ответом 403. Поэтому за прогон создаётся не больше
-  `SCRAPE_MAX_NEW_ISSUES` задач, а остальное намеренно откладывается до следующего тика.
-- **Дедупликация работает по URL.** Одна и та же новость на трёх разных сайтах — это три
-  разные задачи. Схлопывание по смыслу потребовало бы эмбеддингов и здесь не делается.
-- **Тело задачи ограничено.** GitHub не принимает больше 65536 символов, конвейер режет по
-  60000, поэтому очень длинные статьи сохраняются обрезанными (с пометкой `[truncated]`).
-  Блок метаданных и саммари при этом не страдают.
-- **Ручные правки соревнуются с конвейером.** Если поменять лейбл ровно в тот момент, когда
-  идёт прогон, победит запись конвейера — он не проверяет, не изменилась ли задача с момента
-  чтения.
-- **`data/seen.json` коммитится ботом.** Два одновременно идущих прогона сбора подерутся за
-  ветку; не запускайте `scrape.yml` руками поверх идущего по расписанию.
-- **Тип `web` — минимальный.** Playwright, страница-список, CSS-селектор. Ни пагинации, ни
-  авторизации, ни обхода антибот-защиты.
+- **Posting to Discord and moving the label are not one transaction.** The message goes to the
+  webhook first, and only then does the issue become `status:3-published`. If the run dies (or
+  Actions kills it on timeout) between the two, the article stays `status:2-ready` and gets
+  posted to Discord again on the next run. A duplicate in the channel is the price of never
+  losing a publication; the opposite order would lose them.
+- **The dedup ledger is a rolling window.** `data/seen.json` keeps only the newest
+  `SEEN_MAX_ENTRIES` uids (5000 by default). A source that has been silent for a very long time
+  can have its old entries pushed out of the window by other sources — and then a stale article
+  comes back as new. Widening the window fixes it, at the cost of a file that grows and is
+  committed every run.
+- **The throughput ceiling is the free Gemini tier.** It — not GitHub, not the sources —
+  determines how many articles a day actually clear the filter: one call per article plus a
+  pause between calls (`LLM_DELAY_SECONDS`, 5 seconds by default). To go faster, buy a key or
+  pick a cheaper model; do not run cron more often.
+- **GitHub throttles bulk content creation** separately from the 5000-requests-per-hour budget,
+  without warning and with a 403. That is why a run creates at most `SCRAPE_MAX_NEW_ISSUES`
+  issues and defers the rest to the next tick on purpose.
+- **Deduplication works on URLs.** The same story on three different sites is three different
+  issues. Collapsing by meaning would need embeddings and is not attempted here.
+- **Issue bodies are capped.** GitHub refuses anything over 65536 characters and the pipeline
+  cuts at 60000, so very long articles are stored truncated (marked `[truncated]`). The metadata
+  block and the summary are never the part that gets cut.
+- **Manual edits race the pipeline.** Change a label at the exact moment a run is in flight and
+  the pipeline's write wins — it does not check whether the issue changed since it was read.
+- **`data/seen.json` is committed by a bot.** Two concurrent scrape runs would fight over the
+  branch; do not trigger `scrape.yml` by hand on top of a scheduled run.
+- **The `web` source type is minimal.** Playwright, a listing page, a CSS selector. No
+  pagination, no authentication, no anti-bot evasion.
