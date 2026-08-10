@@ -21,11 +21,15 @@ from .client import GitHubClient
 
 log = get_logger(__name__)
 
-META_RE = re.compile(r"^\s*<!--\s*aetherfeed\s*\n(.*?)\n-->", re.DOTALL)
-ORIGINAL_OPEN = "<!-- aetherfeed:original -->"
-ORIGINAL_CLOSE = "<!-- /aetherfeed:original -->"
+# The project was briefly called aetherfeed, and issues written back then are
+# still in the queue. Reading accepts either spelling; writing only emits the
+# current one, so old issues migrate the first time they are rewritten.
+_NAME = r"(?:squelch|aetherfeed)"
+META_RE = re.compile(rf"^\s*<!--\s*{_NAME}\s*\n(.*?)\n-->", re.DOTALL)
+ORIGINAL_OPEN = "<!-- squelch:original -->"
+ORIGINAL_CLOSE = "<!-- /squelch:original -->"
 ORIGINAL_RE = re.compile(
-    re.escape(ORIGINAL_OPEN) + r"\n(.*?)\n" + re.escape(ORIGINAL_CLOSE), re.DOTALL
+    rf"<!-- {_NAME}:original -->\n(.*?)\n<!-- /{_NAME}:original -->", re.DOTALL
 )
 # The verdict line sits between the summary and the rule, so it has to end the
 # match too — otherwise it is read back as part of the summary and re-rendered
@@ -139,7 +143,7 @@ def _render(
     verdict: Verdict | None = None,
 ) -> str:
     front = yaml.safe_dump(meta, sort_keys=True, allow_unicode=True).strip()
-    parts = [f"<!-- aetherfeed\n{front}\n-->", ""]
+    parts = [f"<!-- squelch\n{front}\n-->", ""]
 
     if summary:
         parts += ["## Summary", "", summary.strip(), ""]
@@ -294,7 +298,7 @@ class IssueStore:
             "published_at": (
                 article.published_at.isoformat() if article.published_at else None
             ),
-            "scraped_by": "aetherfeed",
+            "scraped_by": "squelch",
         }
         payload = self.client.request(
             "POST",

@@ -37,4 +37,4 @@ jobs:
       - name: Scrape
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: aetherfeed scrape
+        run: squelch scrape

@@ -1,5 +1,5 @@
 [project]
-name = "aetherfeed"
+name = "squelch"
 version = "0.1.0"
 description = "Serverless news aggregation pipeline on GitHub Issues + Gemini"
 requires-python = ">=3.12"
@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-aetherfeed = "aetherfeed.cli.main:app"
+squelch = "squelch.cli.main:app"
 
 [project.optional-dependencies]
 dev = [
@@ -35,7 +35,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/aetherfeed"]
+packages = ["src/squelch"]
 
 [tool.ruff]
 line-length = 100

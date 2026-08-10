@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from aetherfeed.core.urls import canonicalize, url_uid
+from squelch.core.urls import canonicalize, url_uid
 
 
 @pytest.mark.parametrize(

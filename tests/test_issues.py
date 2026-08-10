@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from aetherfeed.core.models import Status, Verdict
-from aetherfeed.github.issues import (
+from squelch.core.models import Status, Verdict
+from squelch.github.issues import (
     BODY_LIMIT,
     ORIGINAL_CLOSE,
     IssueRecord,
@@ -23,7 +23,7 @@ def make_meta(**overrides: Any) -> dict[str, Any]:
         "url": "https://example.com/2025/01/story",
         "source": "arstechnica",
         "published_at": "2025-01-06T09:30:00+00:00",
-        "scraped_by": "aetherfeed",
+        "scraped_by": "squelch",
     }
     meta.update(overrides)
     return meta
@@ -100,7 +100,7 @@ def test_article_text_containing_the_original_close_marker_is_neutralized() -> N
     assert original_out.startswith("Before the marker.")
     assert original_out.endswith("After the marker.")
     assert ORIGINAL_CLOSE not in original_out
-    assert "<!- - /aetherfeed:original -->" in original_out
+    assert "<!- - /squelch:original -->" in original_out
     assert body.count(ORIGINAL_CLOSE) == 1
 
 

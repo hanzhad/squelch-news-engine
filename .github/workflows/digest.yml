@@ -35,7 +35,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: aetherfeed digest --days 7
+        run: squelch digest --days 7
 
       # Housekeeping rides along with the weekly run: closing old published
       # issues is the one thing that keeps the issue list usable long-term, and
@@ -45,4 +45,4 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: aetherfeed retention
+        run: squelch retention

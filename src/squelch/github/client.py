@@ -43,7 +43,7 @@ class GitHubClient:
                 "Authorization": f"Bearer {settings.github_token}",
                 "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": "aetherfeed",
+                "User-Agent": "squelch",
             },
         )
 

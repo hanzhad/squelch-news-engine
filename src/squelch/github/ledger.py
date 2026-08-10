@@ -24,8 +24,8 @@ from .client import GitHubClient, GitHubError
 log = get_logger(__name__)
 
 LEDGER_LABEL = "meta:ledger"
-LEDGER_TITLE = "aetherfeed: seen ledger"
-MARKER = "<!-- aetherfeed:ledger -->"
+LEDGER_TITLE = "squelch: seen ledger"
+MARKER = "<!-- squelch:ledger -->"
 UID_BLOCK_RE = re.compile(r"```text\n(.*?)\n```", re.DOTALL)
 
 # GitHub caps an issue body at 65536 characters. A uid plus its newline is 17,

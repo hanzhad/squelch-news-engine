@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from aetherfeed.core.models import RawArticle, Status
-from aetherfeed.github.issues import meta_from_form, parse_issue
+from squelch.core.models import RawArticle, Status
+from squelch.github.issues import meta_from_form, parse_issue
 
 FORM_BODY = """### Link
 
@@ -58,7 +58,7 @@ def test_a_suggestion_reaches_the_pipeline_with_a_usable_link() -> None:
 
 
 def test_a_scraped_issue_ignores_the_form_fallback() -> None:
-    body = "<!-- aetherfeed\nurl: https://real.example/a\nsource: krebs\n-->\n\n### Link\n\nhttps://decoy.example/b"
+    body = "<!-- squelch\nurl: https://real.example/a\nsource: krebs\n-->\n\n### Link\n\nhttps://decoy.example/b"
 
     record = parse_issue(form_payload(body))
 

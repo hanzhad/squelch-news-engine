@@ -13,12 +13,12 @@ from pathlib import Path
 import pytest
 
 # The suite is meant to run straight from a checkout, so make the src-layout
-# package importable even when aetherfeed has not been pip-installed yet.
+# package importable even when squelch has not been pip-installed yet.
 _SRC = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from aetherfeed.core.config import Config, Source  # noqa: E402
+from squelch.core.config import Config, Source  # noqa: E402
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 

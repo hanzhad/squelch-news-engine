@@ -47,7 +47,7 @@ jobs:
       - name: Build site
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: aetherfeed build-site --out site/out
+        run: squelch build-site --out site/out
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5

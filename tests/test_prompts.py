@@ -6,9 +6,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from aetherfeed.core.config import Config, load_config
-from aetherfeed.github.issues import IssueRecord
-from aetherfeed.llm import prompts
+from squelch.core.config import Config, load_config
+from squelch.github.issues import IssueRecord
+from squelch.llm import prompts
 
 
 @pytest.fixture

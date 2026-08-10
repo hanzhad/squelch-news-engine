@@ -8,9 +8,9 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
-from aetherfeed.core.config import Config, Source
-from aetherfeed.scrapers import rss
-from aetherfeed.scrapers.extract import strip_html
+from squelch.core.config import Config, Source
+from squelch.scrapers import rss
+from squelch.scrapers.extract import strip_html
 
 
 class FakeResponse:

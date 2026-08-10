@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from aetherfeed.core.seen import SeenLedger
+from squelch.core.seen import SeenLedger
 
 
 def test_loading_a_missing_file_starts_an_empty_ledger(tmp_path: Path) -> None:

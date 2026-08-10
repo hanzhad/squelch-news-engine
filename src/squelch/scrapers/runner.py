@@ -10,7 +10,7 @@ from ..core.throttle import paced
 from ..github.client import GitHubError
 from ..github.issues import IssueStore
 from ..github.ledger import IssueLedger, NullLedger
-from . import html, rss, web
+from . import html, rss, sites, web
 from .extract import new_http_client
 
 log = get_logger(__name__)
@@ -25,7 +25,9 @@ def collect(config: Config, settings: Settings, only_type: str | None = None) ->
         for source in config.enabled_sources:
             if only_type and source.type != only_type:
                 continue
-            scraper = SCRAPERS.get(source.type)
+            # A hand-written scraper for this id wins over the generic one for
+            # its type; see scrapers/sites/ for when that is worth doing.
+            scraper = sites.get(source.id) or SCRAPERS.get(source.type)
             if scraper is None:
                 log.error("source %s has unknown type %r", source.id, source.type)
                 continue

@@ -6,7 +6,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from aetherfeed.scrapers.html import _collect_links, _parse_date
+from squelch.core.config import Config, Source
+from squelch.core.models import RawArticle
+from squelch.core.settings import Settings
+from squelch.scrapers import runner, sites
+from squelch.scrapers.html import _collect_links, _parse_date
 
 LISTING = """
 <html><body>
@@ -66,3 +70,34 @@ def test_anchors_without_href_are_skipped() -> None:
 )
 def test_dates_are_parsed_or_given_up_on(raw: str | None, expected: datetime | None) -> None:
     assert _parse_date(raw) == expected
+
+
+def test_a_registered_site_scraper_overrides_the_generic_one() -> None:
+    """A source id with hand-written logic must win over its generic type."""
+    calls: list[str] = []
+
+    @sites.register("pretend-site")
+    def _custom(source: Source, config: Config, client: object) -> list[RawArticle]:
+        calls.append(source.id)
+        return []
+
+    try:
+        config = Config(focus="f", sources=[Source(id="pretend-site", url="https://x.test")])
+        runner.collect(config, Settings())
+
+        assert calls == ["pretend-site"]
+        assert "pretend-site" in sites.registered()
+    finally:
+        sites._REGISTRY.pop("pretend-site", None)
+
+
+def test_registering_the_same_source_twice_is_refused() -> None:
+    @sites.register("taken")
+    def _first(source: Source, config: Config, client: object) -> list[RawArticle]:
+        return []
+
+    try:
+        with pytest.raises(ValueError, match="taken"):
+            sites.register("taken")(_first)
+    finally:
+        sites._REGISTRY.pop("taken", None)

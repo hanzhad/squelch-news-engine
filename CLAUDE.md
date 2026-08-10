@@ -1,21 +1,21 @@
 # Squelch — notes for Claude Code
 
 Serverless news pipeline. GitHub Issues are the database, labels are the state machine,
-GitHub Actions is the scheduler. Python 3.12+, src-layout, package `aetherfeed`.
+GitHub Actions is the scheduler. Python 3.12+, src-layout, package `squelch`.
 
 ## Layout
 
 ```
-src/aetherfeed/
+src/squelch/
   core/        models, settings, config loader, URL canonicalization, dedup ledger, logging
   github/      REST client, issue CRUD + body render/parse, label bootstrap
   scrapers/    rss, web (Playwright), text extraction, orchestration
   llm/         Gemini calls: filter verdicts and the weekly digest
   publishers/  Discord webhook
   site/        static archive rendering (templates live in top-level site/templates/)
-  cli/         typer app; console script is `aetherfeed`
+  cli/         typer app; console script is `squelch`
 config/sources.yaml   editorial policy + source catalogue
-data/seen.json        rolling dedup ledger, committed back by the scrape workflow
+                      the dedup ledger is an issue (label meta:ledger), not a file
 tests/                offline only — fixtures + fake HTTP clients, never the real network
 ```
 
@@ -37,7 +37,7 @@ exactly that case, so keep that path working.
 prompt and decides what survives; `topics` bounds the set of `topic:*` labels the LLM may
 apply. Tuning behaviour means editing that file — do not hard-code source lists, keyword
 filters or score thresholds in Python. Adding a topic or source means re-running
-`aetherfeed bootstrap-labels`.
+`squelch bootstrap-labels`.
 
 ## Conventions
 

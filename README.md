@@ -34,11 +34,13 @@ What this buys for free:
   original-text marker, so the pipeline takes the whole issue body as the article text.
 - **Zero infrastructure.** Storage, authentication and scheduling are GitHub's problem.
 
-Deduplication deliberately does *not* rely on Issues: GitHub's search index lags writes by
-seconds to minutes, so "search before creating" loses races and produces duplicates. Instead
-the scraper keeps its own ledger of already-seen uids in `data/seen.json` and commits it back
-to the repository after every run. A uid is a hash of the canonicalized URL
-(`src/aetherfeed/core/urls.py`): utm parameters, `fbclid`, `www.`, a default port, the fragment
+Deduplication lives in Issues too, but not through search. Storing a uid is free — every
+article issue already carries one — while asking *"has any issue ever carried uid X"* is not:
+the search API lags writes and allows 30 requests a minute, and paginating the whole archive
+gets slower every week as rejected articles accumulate. So the whole set of seen uids lives in
+the body of one closed issue labelled `meta:ledger`. One GET loads it, one PATCH saves it, and
+the cost never grows with the archive. A uid is a hash of the canonicalized URL
+(`src/squelch/core/urls.py`): utm parameters, `fbclid`, `www.`, a default port, the fragment
 and query-parameter order do not affect it, so the same article arriving from three different
 feeds yields one uid.
 
@@ -49,7 +51,7 @@ Each pipeline is its own workflow in `.github/workflows/`, triggered by cron and
 
 | Pipeline | Workflow | What it does | Schedule |
 | --- | --- | --- | --- |
-| Scrape | `scrape.yml` | Walks the enabled sources, drops already-seen uids, opens issues labelled `status:1-raw`, appends to `data/seen.json` | `0,30 * * * *` |
+| Scrape | `scrape.yml` | Walks the enabled sources, drops already-seen uids, opens issues labelled `status:1-raw`, updates the ledger issue | `0,30 * * * *` |
 | Filter | `filter.yml` | Sends each raw issue to Gemini together with `focus` from the config and gets a verdict: `status:2-ready` plus a summary and tags, or `status:rejected` and closure | `10,40 * * * *` |
 | Publish | `publish.yml` | Sends ready articles to the Discord webhook and moves them to `status:3-published` | `5,20,35,50 * * * *` |
 | Digest | `digest.yml` | Builds a weekly roundup with trends out of what was published, then closes issues past the retention window | `0 9 * * 1` |
@@ -79,8 +81,8 @@ throttles bulk content creation, and the free Gemini tier counts requests per mi
    `GITHUB_TOKEN` and `GITHUB_REPOSITORY` are supplied by Actions itself; do not create them.
 
 3. **Let workflows write to the repository.** *Settings → Actions → General → Workflow
-   permissions → Read and write permissions*. Without this the pipeline can neither edit issues
-   nor commit `data/seen.json`.
+   permissions → Read and write permissions*. Every stage edits issues, and a read-only token
+   caps what a workflow can ask for no matter what its own `permissions:` block says.
 
 4. **Create the labels once.** Labels are the state machine, and they need meaningful colours
    and descriptions — otherwise GitHub invents them on first use:
@@ -89,7 +91,7 @@ throttles bulk content creation, and the free Gemini tier counts requests per mi
    pip install -e .
    export GITHUB_TOKEN=<personal access token with issues access to the repo>
    export GITHUB_REPOSITORY=<owner/repo>
-   aetherfeed bootstrap-labels
+   squelch bootstrap-labels
    ```
 
    The command is idempotent: run it again after editing `topics` or the source list in the
@@ -128,7 +130,7 @@ If the feed lets junk through, fix `focus` — not a threshold, and not the code
 ### `topics` — the bounds of the label set
 
 The LLM may only apply tags from this list, which keeps the set of `topic:*` labels in the
-repository finite. After adding a topic, run `aetherfeed bootstrap-labels` so the label appears
+repository finite. After adding a topic, run `squelch bootstrap-labels` so the label appears
 with a proper colour.
 
 ### Adding an RSS source
@@ -185,25 +187,25 @@ ruff check .           # lint (line-length 100, py312)
 ruff check . --fix
 ```
 
-CLI commands (the console script from `pyproject.toml` is `aetherfeed`):
+CLI commands (the console script from `pyproject.toml` is `squelch`):
 
 | Command | Purpose |
 | --- | --- |
-| `aetherfeed scrape` | walk the sources and open issues |
-| `aetherfeed filter` | run raw issues through the LLM |
-| `aetherfeed publish` | send ready articles to Discord |
-| `aetherfeed digest` | build the weekly digest |
-| `aetherfeed build-site` | render the static archive |
-| `aetherfeed bootstrap-labels` | create or repair labels from the config |
-| `aetherfeed retention` | close old published issues |
+| `squelch scrape` | walk the sources and open issues |
+| `squelch filter` | run raw issues through the LLM |
+| `squelch publish` | send ready articles to Discord |
+| `squelch digest` | build the weekly digest |
+| `squelch build-site` | render the static archive |
+| `squelch bootstrap-labels` | create or repair labels from the config |
+| `squelch retention` | close old published issues |
 
 Before running for real, see what a command intends to do without writing anything:
 
 ```bash
-aetherfeed scrape --dry-run
+squelch scrape --dry-run
 ```
 
-For the exact flags of any command, use `aetherfeed <command> --help`.
+For the exact flags of any command, use `squelch <command> --help`.
 
 Environment variables are read through pydantic-settings, so a local `.env` file is convenient
 (it is in `.gitignore`):
@@ -215,7 +217,7 @@ GEMINI_API_KEY=...
 DISCORD_WEBHOOK_URL=...
 ```
 
-The same file overrides the thresholds in `src/aetherfeed/core/settings.py` — for example
+The same file overrides the thresholds in `src/squelch/core/settings.py` — for example
 `SCRAPE_MAX_NEW_ISSUES`, `LLM_DELAY_SECONDS`, `SEEN_MAX_ENTRIES`, `GEMINI_MODEL`,
 `PUBLISHED_RETENTION_DAYS`. Secret values are never committed: only their names live in the
 repository.
@@ -229,11 +231,11 @@ An honest list. These are not bugs about to be fixed — they follow from the ar
   Actions kills it on timeout) between the two, the article stays `status:2-ready` and gets
   posted to Discord again on the next run. A duplicate in the channel is the price of never
   losing a publication; the opposite order would lose them.
-- **The dedup ledger is a rolling window.** `data/seen.json` keeps only the newest
-  `SEEN_MAX_ENTRIES` uids (5000 by default). A source that has been silent for a very long time
-  can have its old entries pushed out of the window by other sources — and then a stale article
-  comes back as new. Widening the window fixes it, at the cost of a file that grows and is
-  committed every run.
+- **The dedup ledger is a rolling window.** The ledger issue keeps only the newest
+  `SEEN_MAX_ENTRIES` uids (3500 by default, bounded by GitHub's 65536-character issue body). A
+  source silent for a very long time can have its old entries pushed out by other sources — and
+  then a stale article comes back as new. In-flight issues are checked separately, so only
+  articles already published or rejected can resurface this way.
 - **The throughput ceiling is the free Gemini tier.** It — not GitHub, not the sources —
   determines how many articles a day actually clear the filter: one call per article plus a
   pause between calls (`LLM_DELAY_SECONDS`, 5 seconds by default). To go faster, buy a key or
@@ -248,7 +250,8 @@ An honest list. These are not bugs about to be fixed — they follow from the ar
   block and the summary are never the part that gets cut.
 - **Manual edits race the pipeline.** Change a label at the exact moment a run is in flight and
   the pipeline's write wins — it does not check whether the issue changed since it was read.
-- **`data/seen.json` is committed by a bot.** Two concurrent scrape runs would fight over the
-  branch; do not trigger `scrape.yml` by hand on top of a scheduled run.
+- **The ledger is read once and written once per run.** Two concurrent scrape runs would
+  overwrite each other's uids; the workflow's concurrency group prevents that, so do not work
+  around it.
 - **The `web` source type is minimal.** Playwright, a listing page, a CSS selector. No
   pagination, no authentication, no anti-bot evasion.

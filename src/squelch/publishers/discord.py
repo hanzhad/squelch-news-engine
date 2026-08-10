@@ -111,7 +111,7 @@ class _Webhook:
         self._url = _with_wait(settings.discord_webhook_url)
         self._client = httpx.Client(
             timeout=settings.request_timeout,
-            headers={"User-Agent": "aetherfeed"},
+            headers={"User-Agent": "squelch"},
         )
         # Learnt from the previous response: seconds to hold before the next
         # request, so an exhausted bucket costs a pause instead of a 429.
@@ -245,7 +245,7 @@ def _issue_embed(issue: IssueRecord) -> dict[str, Any]:
     if issue.url:
         embed["url"] = issue.url
 
-    footer = ["aetherfeed"]
+    footer = ["squelch"]
     if issue.source:
         footer.append(issue.source)
     if isinstance(score, int | float):
@@ -299,7 +299,7 @@ def _digest_embeds(digest: Digest) -> list[dict[str, Any]]:
         "title": _trim(digest.headline, TITLE_LIMIT),
         "description": _trim(trends, DESCRIPTION_LIMIT),
         "color": ACCENT_COLOR,
-        "footer": {"text": "aetherfeed · weekly digest"},
+        "footer": {"text": "squelch · weekly digest"},
     }
     if not digest.highlights:
         return [lead]
