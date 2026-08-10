@@ -106,7 +106,12 @@ Raise the setting to show more, and pay the extra requests on every build.
 
 None of the pipelines tries to do all the work in one run: scraping, both LLM stages and
 publishing each cap their batch and leave the remainder for the next tick. This is deliberate — GitHub
-throttles bulk content creation, and the free Gemini tier counts requests per minute.
+throttles bulk content creation, and the free Gemini tier meters requests tightly.
+
+That quota is counted **per model**, which matters the day you drain it: `digest.yml` takes a
+`model` input on manual dispatch, so a roundup can still be written on a model that has budget
+left while the usual one is spent. Blank — which is what the scheduled run passes — leaves
+`config/models.yaml` in charge.
 
 ## Quick start
 

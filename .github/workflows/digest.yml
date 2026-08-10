@@ -5,6 +5,14 @@ on:
     # Monday morning UTC, once the week it summarises is actually over.
     - cron: "0 9 * * 1"
   workflow_dispatch:
+    inputs:
+      model:
+        description: >-
+          Gemini model to write this digest with. Blank uses config/models.yaml.
+          Free-tier quota is counted per model, so a second model is also the
+          way to get a digest out when the usual one is spent.
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -37,4 +45,6 @@ jobs:
           # Optional: a webhook for a channel of the digest's own. Unset means
           # the roundup lands in the feed channel with everything else.
           DISCORD_DIGEST_WEBHOOK_URL: ${{ secrets.DISCORD_DIGEST_WEBHOOK_URL }}
+          # Empty on the scheduled run, so config/models.yaml stays in charge.
+          GEMINI_MODEL: ${{ inputs.model }}
         run: squelch digest --days 7
