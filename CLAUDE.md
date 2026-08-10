@@ -34,6 +34,14 @@ single owner of the move to `status:4-published`, so a channel dying after its o
 never strand an article. `record_delivery` writes the body before the label on purpose — that
 order is what stops a half-finished Discord run from double-posting.
 
+A channel may declare `consumes: rejected` (the `discord-rejected` window onto what the
+classifier threw away): it reads `status:rejected` through the same `list_pending` bookkeeping
+but must never appear in `required_channels` — ordinary articles never carry its `sent:` label,
+so counting it would strand every ready article open. The way back is the rescue pass
+(`squelch rescue`): enough 👍 reactions on a rejected issue reopen it as `status:2-relevant` —
+relevant, not raw, because re-classifying the same text would reject it again; a vote is a
+human override, exactly like flipping the label by hand.
+
 The classifier's `score` decides how much room an article gets in Discord, through `emphasis`
 thresholds in `delivery.yaml` — `_weight` in `publishers/discord.py` maps it to a lead, a
 standard or a brief. Size is the whole signal; the colour only confirms it. Every article is

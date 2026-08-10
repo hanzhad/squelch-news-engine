@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     discord_digest_webhook_url: str = Field(
         default="", validation_alias="DISCORD_DIGEST_WEBHOOK_URL"
     )
+    # The channel that shows what the classifier threw away. Deliberately not
+    # falling back to the feed webhook: rejects in the main feed would defeat
+    # the point, so the publish-rejected stage refuses to run without this.
+    discord_rejected_webhook_url: str = Field(
+        default="", validation_alias="DISCORD_REJECTED_WEBHOOK_URL"
+    )
 
     # --- throughput --------------------------------------------------------
     # GitHub throttles *content creation* (issues, comments) far below the
@@ -43,6 +49,15 @@ class Settings(BaseSettings):
 
     publish_batch_size: int = 10
     publish_delay_seconds: float = 2.0
+
+    # How far back the rejected channel and the rescue pass look. Bounded so
+    # that neither pages through every rejection ever made: the channel shows
+    # a recent window rather than replaying the archive on first enable, and a
+    # 👍 arriving after the rescue window has passed is simply too late.
+    rejected_window_days: int = 3
+    rescue_window_days: int = 14
+    # 👍 reactions needed on a rejected issue before it is voted back in.
+    rescue_min_reactions: int = 1
 
     # How far back the site build reads. Without a bound it would page through
     # every article ever published on every rebuild, and that cost grows with

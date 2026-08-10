@@ -12,7 +12,8 @@ already out.
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -21,7 +22,7 @@ import httpx
 
 from ..core.config import Config, Emphasis
 from ..core.log import get_logger
-from ..core.models import Digest, DigestEntry
+from ..core.models import Digest, DigestEntry, Status
 from ..core.settings import Settings
 from ..core.throttle import paced
 from ..github.issues import IssueRecord, IssueStore
@@ -72,6 +73,12 @@ WEIGHT_COLORS = {
 # Must match the channel id in config/delivery.yaml — that is what ties this
 # module to the sent:discord label and to the count that closes an issue.
 CHANNEL = "discord"
+# The window onto what the classifier threw away. A channel of its own in the
+# same server, so the feed stays clean; consumes status:rejected and never
+# takes part in closing an issue.
+REJECTED_CHANNEL = "discord-rejected"
+# The brief's grey: rejected posts are the quietest thing squelch says.
+REJECTED_COLOR = 0x4A4A47
 
 
 class DiscordError(RuntimeError):
@@ -352,6 +359,42 @@ def _issue_embed(issue: IssueRecord, emphasis: Emphasis | None = None) -> dict[s
     return embed
 
 
+def _rejected_embed(issue: IssueRecord) -> dict[str, Any]:
+    """One rejected article: the verdict, and the way to appeal it.
+
+    Deliberately the size of a brief — this channel exists so the classifier's
+    mistakes are visible, not to compete with the feed. The reason is the
+    content here, and the issue link is the call to action: enough 👍 on the
+    issue and the rescue pass sends the article back for its write-up.
+    """
+    embed: dict[str, Any] = {
+        "title": _trim(issue.title, TITLE_LIMIT),
+        "color": REJECTED_COLOR,
+    }
+    if issue.url:
+        embed["url"] = issue.url
+    if issue.source:
+        embed["author"] = {"name": _trim(issue.source, AUTHOR_LIMIT)}
+
+    lines = []
+    reason = str(issue.meta.get("verdict_reason") or "").strip()
+    if reason:
+        lines.append(f"**Rejected:** {reason}")
+    if issue.html_url:
+        lines.append(
+            f"Disagree? React 👍 on [#{issue.number}]({issue.html_url}) "
+            "and it goes back into the pipeline."
+        )
+    if lines:
+        embed["description"] = _trim("\n".join(lines), DESCRIPTION_LIMIT)
+
+    embed["footer"] = {"text": "squelch · rejected"}
+    stamp = _timestamp(issue.meta.get("published_at")) or _timestamp(issue.created_at)
+    if stamp:
+        embed["timestamp"] = stamp
+    return embed
+
+
 def _payload(embeds: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "embeds": _fit_embeds(embeds),
@@ -405,13 +448,60 @@ def _digest_embeds(digest: Digest) -> list[dict[str, Any]]:
 # -- entry points -----------------------------------------------------------
 
 
+def _deliver(
+    webhook: _Webhook,
+    store: IssueStore,
+    issues: list[IssueRecord],
+    channel: str,
+    make_embed: Callable[[IssueRecord], dict[str, Any]],
+    delay: float,
+) -> tuple[int, int]:
+    """Post each issue and mark it delivered; returns (posted, relabelled).
+
+    One bad article never stops the batch: whatever fails keeps its place in
+    the queue and the next run tries it again.
+    """
+    posted = 0
+    relabelled = 0
+    for issue in paced(issues, delay):
+        known_id = str(issue.delivery(channel).get("message_id") or "")
+        if known_id:
+            # A previous run posted this and died before its label landed.
+            # Reposting would double it up, so only the label moves.
+            try:
+                store.record_delivery(issue, channel, {"message_id": known_id})
+                relabelled += 1
+            except Exception as exc:  # noqa: BLE001 - retried on the next run
+                log.error("#%d is already on Discord but will not relabel: %s", issue.number, exc)
+            continue
+
+        try:
+            message_id = webhook.send(_payload([make_embed(issue)]))
+        except Exception as exc:  # noqa: BLE001 - one article must not stop the batch
+            log.error("could not publish #%d: %s", issue.number, exc)
+            continue
+        posted += 1
+
+        try:
+            store.record_delivery(issue, channel, {"message_id": message_id})
+        except Exception as exc:  # noqa: BLE001 - the message is out either way
+            # Logged loudly: the id exists nowhere else yet, and without it
+            # on the issue the next run has no way to know not to repost.
+            log.error(
+                "#%d posted as message %s but was not recorded: %s",
+                issue.number,
+                message_id or "?",
+                exc,
+            )
+    return posted, relabelled
+
+
 def publish_ready(settings: Settings, config: Config, store: IssueStore) -> int:
     """Post ready articles Discord has not seen yet and mark them delivered.
 
-    Returns the number of messages actually sent. One bad article never stops
-    the batch: whatever fails keeps its place in the queue and the next run
-    tries it again. Whether the article is now finished with — that is, out on
-    every channel — is not this stage's question.
+    Returns the number of messages actually sent. Whether the article is now
+    finished with — that is, out on every channel — is not this stage's
+    question.
     """
     issues = store.list_pending(CHANNEL, limit=settings.publish_batch_size)
     if not issues:
@@ -419,43 +509,59 @@ def publish_ready(settings: Settings, config: Config, store: IssueStore) -> int:
         return 0
 
     emphasis = config.channel(CHANNEL).emphasis
-    posted = 0
-    relabelled = 0
     with _Webhook(settings) as webhook:
-        for issue in paced(issues, settings.publish_delay_seconds):
-            known_id = str(issue.delivery(CHANNEL).get("message_id") or "")
-            if known_id:
-                # A previous run posted this and died before its label landed.
-                # Reposting would double it up, so only the label moves.
-                try:
-                    store.record_delivery(issue, CHANNEL, {"message_id": known_id})
-                    relabelled += 1
-                except Exception as exc:  # noqa: BLE001 - retried on the next run
-                    log.error(
-                        "#%d is already on Discord but will not relabel: %s", issue.number, exc
-                    )
-                continue
-
-            try:
-                message_id = webhook.send(_payload([_issue_embed(issue, emphasis)]))
-            except Exception as exc:  # noqa: BLE001 - one article must not stop the batch
-                log.error("could not publish #%d: %s", issue.number, exc)
-                continue
-            posted += 1
-
-            try:
-                store.record_delivery(issue, CHANNEL, {"message_id": message_id})
-            except Exception as exc:  # noqa: BLE001 - the message is out either way
-                # Logged loudly: the id exists nowhere else yet, and without it
-                # on the issue the next run has no way to know not to repost.
-                log.error(
-                    "#%d posted as message %s but was not recorded: %s",
-                    issue.number,
-                    message_id or "?",
-                    exc,
-                )
+        posted, relabelled = _deliver(
+            webhook,
+            store,
+            issues,
+            CHANNEL,
+            lambda issue: _issue_embed(issue, emphasis),
+            settings.publish_delay_seconds,
+        )
 
     log.info("published %d issue(s), relabelled %d already posted", posted, relabelled)
+    return posted
+
+
+def publish_rejected(settings: Settings, config: Config, store: IssueStore) -> int:
+    """Post recently rejected articles to their own channel and mark them.
+
+    The rejected channel consumes ``status:rejected`` instead of ready, so it
+    never takes part in closing an issue — rejections are closed already. The
+    credential is checked before anything else on purpose: the shared webhook
+    fallback in ``_Webhook`` would otherwise quietly post rejects into the
+    main feed, which is the one thing this channel must never do.
+    """
+    if not config.channel(REJECTED_CHANNEL).enabled:
+        log.info("%s is disabled in delivery.yaml, nothing to do", REJECTED_CHANNEL)
+        return 0
+    if not settings.discord_rejected_webhook_url:
+        raise DiscordError("DISCORD_REJECTED_WEBHOOK_URL is not set")
+
+    # A window, not the whole history: switching the channel on should show
+    # what was thrown away lately, not replay every rejection ever made.
+    since = datetime.now(UTC) - timedelta(days=settings.rejected_window_days)
+    issues = store.list_pending(
+        REJECTED_CHANNEL,
+        limit=settings.publish_batch_size,
+        status=Status.REJECTED,
+        since=since,
+    )
+    if not issues:
+        log.info("nothing rejected to post")
+        return 0
+
+    with _Webhook(settings, settings.discord_rejected_webhook_url) as webhook:
+        posted, relabelled = _deliver(
+            webhook,
+            store,
+            issues,
+            REJECTED_CHANNEL,
+            _rejected_embed,
+            settings.publish_delay_seconds,
+        )
+
+    log.info("posted %d rejected issue(s), relabelled %d already posted", posted, relabelled)
     return posted
 
 

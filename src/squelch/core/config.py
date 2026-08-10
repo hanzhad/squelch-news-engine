@@ -69,6 +69,11 @@ class Channel(BaseModel):
 
     id: str
     enabled: bool = True
+    # What this channel consumes. Almost every channel delivers ready articles
+    # and takes part in the count that closes an issue; a ``rejected`` channel
+    # instead shows what the classifier threw away, and never gates closing —
+    # rejected issues are closed already.
+    consumes: Literal["ready", "rejected"] = "ready"
     emphasis: Emphasis = Field(default_factory=Emphasis)
 
 
@@ -97,7 +102,7 @@ class Config(BaseModel):
     @property
     def required_channels(self) -> list[str]:
         """The channels an article must reach before it counts as published."""
-        return [c.id for c in self.channels if c.enabled]
+        return [c.id for c in self.channels if c.enabled and c.consumes == "ready"]
 
     def channel(self, channel_id: str) -> Channel:
         """One channel's settings, or the defaults if it is not configured."""

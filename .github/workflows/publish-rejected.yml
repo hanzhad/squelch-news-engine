@@ -1,0 +1,40 @@
+name: publish-rejected
+
+on:
+  schedule:
+    # All twelve five-minute slots belong to the hot path, so this sits off
+    # that grid on purpose. Hourly is plenty: rejections trickle out of
+    # classify (:10/:40), and this channel is a window, not a delivery race.
+    - cron: "18 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: publish-rejected
+  # Same reasoning as publish: the window between "posted to Discord" and
+  # "labelled sent" is exactly where a cancellation would cause a double post.
+  cancel-in-progress: false
+
+jobs:
+  publish-rejected:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Post rejected
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_REJECTED_WEBHOOK_URL: ${{ secrets.DISCORD_REJECTED_WEBHOOK_URL }}
+        run: squelch publish-rejected

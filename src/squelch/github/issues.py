@@ -65,6 +65,9 @@ class IssueRecord(BaseModel):
     # Kept verbatim so that issues opened by hand — which have no metadata
     # block and no original marker — still carry their text into the pipeline.
     raw_body: str = ""
+    # The reaction rollup GitHub sends with every issue payload, so counting
+    # votes costs the listing request and nothing per issue.
+    reactions: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def text(self) -> str:
@@ -100,6 +103,12 @@ class IssueRecord(BaseModel):
         return record if isinstance(record, dict) else {}
 
     @property
+    def approvals(self) -> int:
+        """👍 reactions — the community's vote to rescue a rejected article."""
+        count = self.reactions.get("+1", 0)
+        return count if isinstance(count, int) else 0
+
+    @property
     def status(self) -> Status | None:
         # Walked in lifecycle order, not label order, so an issue that somehow
         # carries two status labels answers the same way every time.
@@ -128,18 +137,19 @@ def _label_safe_tags(tags: list[str]) -> list[str]:
     return kept[:MAX_TOPIC_LABELS]
 
 
-def _verdict_from_meta(meta: dict[str, Any]) -> Classification | None:
-    """Rebuild the stage-one verdict that was stored when the article was kept.
+def _verdict_from_meta(meta: dict[str, Any], relevant: bool = True) -> Classification | None:
+    """Rebuild the stage-one verdict that was stored when the article was judged.
 
     Later stages rewrite the whole body, so they need the verdict back to
     re-render the line a reader sees. It lives in the metadata block precisely
-    so it survives that round trip.
+    so it survives that round trip. Relevance is not stored there — the status
+    label is the source of truth for that, so the caller passes it in.
     """
     if "verdict_reason" not in meta:
         return None
     tags = meta.get("tags") or []
     return Classification(
-        relevant=True,
+        relevant=relevant,
         reason=str(meta.get("verdict_reason", "")),
         tags=[str(tag) for tag in tags],
         score=int(meta.get("score") or 0),
@@ -297,6 +307,7 @@ def parse_issue(payload: dict[str, Any]) -> IssueRecord:
         summary=summary,
         original=original,
         raw_body=payload.get("body") or "",
+        reactions=payload.get("reactions") or {},
     )
 
 
@@ -337,16 +348,24 @@ class IssueStore:
         log.info("found %d issues with %s", len(records), status.value)
         return records
 
-    def list_pending(self, channel: str, limit: int | None = None) -> list[IssueRecord]:
-        """Ready articles this channel has not delivered yet.
+    def list_pending(
+        self,
+        channel: str,
+        limit: int | None = None,
+        *,
+        status: Status = Status.READY,
+        since: datetime | None = None,
+    ) -> list[IssueRecord]:
+        """Articles at ``status`` this channel has not delivered yet.
 
-        Only READY, never PUBLISHED: an article closes once every channel that
-        was enabled at the time had it, and turning on a new channel must not
-        replay the whole archive into it.
+        The default is READY and never PUBLISHED: an article closes once every
+        channel that was enabled at the time had it, and turning on a new
+        channel must not replay the whole archive into it. The rejected channel
+        consumes REJECTED instead — same bookkeeping, different queue.
         """
         pending = [
             issue
-            for issue in self.list_by_status(Status.READY)
+            for issue in self.list_by_status(status, since=since)
             if channel not in issue.delivered_to
         ]
         if limit is not None:
@@ -490,9 +509,12 @@ class IssueStore:
             **(details or {}),
         }
         meta["delivery"] = delivery
+        # The rejected channel delivers rejected issues, and their body must
+        # keep saying "Rejected" after the rewrite — hence the label check.
+        verdict = _verdict_from_meta(meta, relevant=issue.status is not Status.REJECTED)
         self._patch(
             issue.number,
-            body=render_body(meta, issue.text, issue.summary, _verdict_from_meta(meta)),
+            body=render_body(meta, issue.text, issue.summary, verdict),
         )
         issue.meta = meta
 
@@ -500,6 +522,31 @@ class IssueStore:
         self._patch(issue.number, labels=labels)
         issue.labels = labels
         log.info("#%d delivered to %s", issue.number, channel)
+
+    def rescue(self, issue: IssueRecord, approvals: int) -> None:
+        """Community override of a rejection: back into the queue as relevant.
+
+        Relevant rather than raw on purpose — the classifier already judged
+        this text once and would say the same thing again. A vote is the same
+        human override as flipping the label by hand, so it lands where a hand
+        edit would: waiting for its write-up. The topic labels the classifier
+        chose are applied now, since the rejection path never did.
+        """
+        meta = dict(issue.meta)
+        if meta.get("verdict_reason"):
+            meta["rejected_reason"] = meta["verdict_reason"]
+        meta["verdict_reason"] = f"Rescued by community vote ({approvals} 👍) after rejection"
+        tags = [str(tag) for tag in meta.get("tags") or []]
+        labels = self._swap_status(issue.labels, Status.RELEVANT)
+        labels += [f"topic:{tag}" for tag in _label_safe_tags(tags)]
+        self._patch(
+            issue.number,
+            body=render_body(meta, issue.text, verdict=_verdict_from_meta(meta)),
+            labels=sorted(set(labels)),
+            state="open",
+            state_reason="reopened",
+        )
+        log.info("#%d -> rescued by %d reaction(s)", issue.number, approvals)
 
     def close_delivered(self, required: list[str]) -> list[int]:
         """Close every ready article that all required channels have delivered.

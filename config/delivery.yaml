@@ -40,3 +40,14 @@ channels:
     emphasis:
       lead: 7
       standard: 4
+  # The community window onto what the classifier threw away, in its own
+  # channel of the same server. Consumes status:rejected instead of ready, so
+  # it never takes part in the count that closes an issue — rejections are
+  # closed already. Each post carries the rejection reason and an invitation
+  # to react 👍 on the issue; enough reactions and the rescue pass sends the
+  # article back into the pipeline as status:2-relevant.
+  # Needs the DISCORD_REJECTED_WEBHOOK_URL secret; disable here to switch the
+  # section off without touching the workflow.
+  - id: discord-rejected
+    enabled: true
+    consumes: rejected
