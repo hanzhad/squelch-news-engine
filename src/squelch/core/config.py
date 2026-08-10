@@ -59,6 +59,9 @@ class Config(BaseModel):
     # The LLM may only tag articles from this list, which keeps the label set
     # on the repository finite.
     topics: list[str] = Field(default_factory=list)
+    # Articles dated further back than this are not news any more; see the
+    # comment in feed.yaml for why a listing page makes this necessary.
+    max_age_days: int = Field(default=21, ge=1)
     max_body_chars: int = 8000
     sources: list[Source] = Field(default_factory=list)
     channels: list[Channel] = Field(default_factory=list)
