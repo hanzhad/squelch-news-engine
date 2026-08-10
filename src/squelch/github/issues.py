@@ -15,7 +15,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from ..core.log import get_logger
-from ..core.models import ALL_STATUSES, RawArticle, Status, Verdict
+from ..core.models import ALL_STATUSES, Classification, RawArticle, Status, Summary
 from ..core.urls import canonicalize, url_uid
 from .client import GitHubClient
 
@@ -35,7 +35,8 @@ ORIGINAL_RE = re.compile(
 # match too — otherwise it is read back as part of the summary and re-rendered
 # into the body on every subsequent write.
 SUMMARY_RE = re.compile(
-    r"^## Summary\n\n(.*?)(?=\n\n\*\*Tags:|\n\n---|\n\n\*\*Source|\Z)",
+    r"^## Summary\n\n(.*?)"
+    r"(?=\n\n\*\*Kept:|\n\n\*\*Rejected:|\n\n\*\*Tags:|\n\n---|\n\n\*\*Source|\Z)",
     re.DOTALL | re.MULTILINE,
 )
 
@@ -106,6 +107,24 @@ def _label_safe_tags(tags: list[str]) -> list[str]:
     return kept[:MAX_TOPIC_LABELS]
 
 
+def _verdict_from_meta(meta: dict[str, Any]) -> Classification | None:
+    """Rebuild the stage-one verdict that was stored when the article was kept.
+
+    Later stages rewrite the whole body, so they need the verdict back to
+    re-render the line a reader sees. It lives in the metadata block precisely
+    so it survives that round trip.
+    """
+    if "verdict_reason" not in meta:
+        return None
+    tags = meta.get("tags") or []
+    return Classification(
+        relevant=True,
+        reason=str(meta.get("verdict_reason", "")),
+        tags=[str(tag) for tag in tags],
+        score=int(meta.get("score") or 0),
+    )
+
+
 def _neutralize(text: str) -> str:
     """Stop article text from closing our own markers."""
     return text.replace(ORIGINAL_CLOSE, ORIGINAL_CLOSE.replace("<!--", "<!- -"))
@@ -115,7 +134,7 @@ def render_body(
     meta: dict[str, Any],
     original: str,
     summary: str = "",
-    verdict: Verdict | None = None,
+    verdict: Classification | None = None,
 ) -> str:
     """Compose an issue body from its parts, trimmed to fit GitHub's limit."""
     body = _render(meta, _neutralize(original.strip()), summary, verdict)
@@ -140,16 +159,26 @@ def _render(
     meta: dict[str, Any],
     original: str,
     summary: str = "",
-    verdict: Verdict | None = None,
+    verdict: Classification | None = None,
 ) -> str:
     front = yaml.safe_dump(meta, sort_keys=True, allow_unicode=True).strip()
     parts = [f"<!-- squelch\n{front}\n-->", ""]
 
     if summary:
         parts += ["## Summary", "", summary.strip(), ""]
-        if verdict:
-            tags = ", ".join(verdict.tags) if verdict.tags else "—"
-            parts += [f"**Tags:** {tags} · **Score:** {verdict.score}/10", ""]
+
+    # The verdict is rendered whether or not a summary exists yet: an article
+    # waiting for its write-up should show why it was kept, and a rejected one
+    # must show why it was dropped where a human will actually see it.
+    if verdict:
+        tags = ", ".join(verdict.tags) if verdict.tags else "—"
+        heading = "Kept" if verdict.relevant else "Rejected"
+        parts += [
+            f"**{heading}:** {verdict.reason.strip()}",
+            "",
+            f"**Tags:** {tags} · **Score:** {verdict.score}/10",
+            "",
+        ]
 
     parts += ["---", ""]
     published = meta.get("published_at") or "unknown"
@@ -275,18 +304,40 @@ class IssueStore:
         log.info("found %d issues with %s", len(records), status.value)
         return records
 
+    def list_in_feed(self, limit: int | None = None) -> list[IssueRecord]:
+        """Everything that has cleared the LLM, whether or not Discord has it.
+
+        The web archive is the record; Discord is one notifier among several.
+        Gating the archive on a webhook would mean a Discord outage silently
+        stopping the site too, which is exactly the coupling the separate
+        stages exist to avoid.
+        """
+        seen: dict[int, IssueRecord] = {}
+        for status in (Status.READY, Status.PUBLISHED):
+            for issue in self.list_by_status(status):
+                seen[issue.number] = issue
+        records = [seen[number] for number in sorted(seen, reverse=True)]
+        return records[:limit] if limit is not None else records
+
     def list_published_since(self, since: datetime) -> list[IssueRecord]:
-        payloads = self.client.paginate(
-            f"/repos/{self.repo}/issues",
-            {
-                "labels": Status.PUBLISHED.value,
-                "state": "all",
-                "since": since.isoformat(),
-                "sort": "created",
-                "direction": "desc",
-            },
-        )
-        return [parse_issue(p) for p in payloads if "pull_request" not in p]
+        """What reached the feed in the window, for the weekly digest."""
+        seen: dict[int, IssueRecord] = {}
+        for status in (Status.READY, Status.PUBLISHED):
+            payloads = self.client.paginate(
+                f"/repos/{self.repo}/issues",
+                {
+                    "labels": status.value,
+                    "state": "all",
+                    "since": since.isoformat(),
+                    "sort": "created",
+                    "direction": "desc",
+                },
+            )
+            for payload in payloads:
+                if "pull_request" not in payload:
+                    record = parse_issue(payload)
+                    seen[record.number] = record
+        return [seen[number] for number in sorted(seen, reverse=True)]
 
     # -- writes -------------------------------------------------------------
 
@@ -313,30 +364,44 @@ class IssueStore:
         log.info("created #%d %s", record.number, record.title[:70])
         return record
 
-    def apply_verdict(self, issue: IssueRecord, verdict: Verdict) -> None:
-        """Move a raw issue to its next state based on the LLM's judgement."""
+    def apply_classification(self, issue: IssueRecord, verdict: Classification) -> None:
+        """Stage one result: keep the article for write-up, or close it."""
         meta = dict(issue.meta)
         meta["verdict_reason"] = verdict.reason
         meta["score"] = verdict.score
         meta["tags"] = verdict.tags
 
         if verdict.relevant:
-            body = render_body(meta, issue.text, verdict.summary, verdict)
-            labels = self._swap_status(issue.labels, Status.READY)
+            labels = self._swap_status(issue.labels, Status.RELEVANT)
             labels += [f"topic:{tag}" for tag in _label_safe_tags(verdict.tags)]
-            self._patch(issue.number, body=body, labels=sorted(set(labels)))
-            log.info("#%d -> ready (score %d)", issue.number, verdict.score)
-        else:
-            body = render_body(meta, issue.text)
-            labels = self._swap_status(issue.labels, Status.REJECTED)
             self._patch(
                 issue.number,
-                body=body,
-                labels=labels,
+                body=render_body(meta, issue.text, verdict=verdict),
+                labels=sorted(set(labels)),
+            )
+            log.info("#%d -> relevant (score %d)", issue.number, verdict.score)
+        else:
+            self._patch(
+                issue.number,
+                # The reason goes in the body, not only the metadata comment:
+                # skimming what the classifier threw away is how you find out
+                # the policy is too tight, and nobody reads raw markdown for that.
+                body=render_body(meta, issue.text, verdict=verdict),
+                labels=self._swap_status(issue.labels, Status.REJECTED),
                 state="closed",
                 state_reason="not_planned",
             )
             log.info("#%d -> rejected (%s)", issue.number, verdict.reason[:60])
+
+    def apply_summary(self, issue: IssueRecord, summary: Summary) -> None:
+        """Stage two result: the article is written up and ready to publish."""
+        meta = dict(issue.meta)
+        self._patch(
+            issue.number,
+            body=render_body(meta, issue.text, summary.summary, _verdict_from_meta(meta)),
+            labels=self._swap_status(issue.labels, Status.READY),
+        )
+        log.info("#%d -> ready", issue.number)
 
     def mark_published(self, issue: IssueRecord, discord_message_id: str | None) -> None:
         meta = dict(issue.meta)
@@ -345,10 +410,14 @@ class IssueStore:
             meta["discord_message_id"] = discord_message_id
         self._patch(
             issue.number,
-            body=render_body(meta, issue.text, issue.summary),
+            body=render_body(meta, issue.text, issue.summary, _verdict_from_meta(meta)),
             labels=self._swap_status(issue.labels, Status.PUBLISHED),
+            # Closed on delivery, so the open list is exactly the work still in
+            # flight. The archive reads closed issues, so nothing is lost.
+            state="closed",
+            state_reason="completed",
         )
-        log.info("#%d -> published", issue.number)
+        log.info("#%d -> published and closed", issue.number)
 
     def close(self, number: int, reason: str = "completed") -> None:
         self._patch(number, state="closed", state_reason=reason)

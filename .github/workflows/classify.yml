@@ -1,9 +1,9 @@
-name: digest
+name: classify
 
 on:
   schedule:
-    # Monday morning UTC, once the week it summarises is actually over.
-    - cron: "0 9 * * 1"
+    # Ten minutes behind scrape, so it always finds the issues that run created.
+    - cron: "10,40 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -11,13 +11,15 @@ permissions:
   issues: write
 
 concurrency:
-  group: digest
+  group: classify
   cancel-in-progress: false
 
 jobs:
-  digest:
+  classify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Shorter than its own 30-minute cadence, so runs never queue up behind a
+    # non-cancelling concurrency group.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
 
@@ -29,9 +31,8 @@ jobs:
       - name: Install
         run: pip install -e .
 
-      - name: Weekly digest
+      - name: Classify
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: squelch digest --days 7
+        run: squelch classify

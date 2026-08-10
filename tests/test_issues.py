@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from squelch.core.models import Status, Verdict
+from squelch.core.models import Classification, Status
 from squelch.github.issues import (
     BODY_LIMIT,
     ORIGINAL_CLOSE,
@@ -105,32 +105,41 @@ def test_article_text_containing_the_original_close_marker_is_neutralized() -> N
 
 
 def test_summary_with_a_verdict_renders_tags_and_score() -> None:
-    verdict = Verdict(
+    verdict = Classification(
         relevant=True,
         reason="Concrete capability news",
-        summary="They shipped a thing.",
         tags=["models", "tooling"],
         score=8,
     )
 
-    body = render_body(make_meta(), "Body.", verdict.summary, verdict)
+    body = render_body(make_meta(), "Body.", "They shipped a thing.", verdict)
 
     assert "**Tags:** models, tooling · **Score:** 8/10" in body
+    assert "**Kept:** Concrete capability news" in body
 
 
 def test_verdict_without_tags_renders_a_dash() -> None:
-    verdict = Verdict(relevant=True, reason="ok", summary="S.", tags=[], score=3)
+    verdict = Classification(relevant=True, reason="ok", tags=[], score=3)
 
     assert "**Tags:** — · **Score:** 3/10" in render_body(make_meta(), "Body.", "S.", verdict)
 
 
+def test_a_rejection_reason_is_rendered_where_a_human_will_see_it() -> None:
+    """The point of the reason is reviewing what the classifier threw away."""
+    verdict = Classification(relevant=False, reason="Opinion piece, no new facts", score=1)
+
+    body = render_body(make_meta(), "Body.", verdict=verdict)
+
+    assert "**Rejected:** Opinion piece, no new facts" in body
+    # It must be visible markdown, not buried in the metadata comment.
+    assert body.index("**Rejected:**") > body.index("-->")
+
+
 def test_summary_round_trips_when_a_verdict_line_follows_it() -> None:
-    verdict = Verdict(
-        relevant=True, reason="r", summary="Just the summary.", tags=["models"], score=7
-    )
+    verdict = Classification(relevant=True, reason="r", tags=["models"], score=7)
 
     _, summary_out, _ = parse_body(
-        render_body(make_meta(), "Body.", verdict.summary, verdict)
+        render_body(make_meta(), "Body.", "Just the summary.", verdict)
     )
 
     assert summary_out == "Just the summary."

@@ -21,14 +21,13 @@ from typing import Annotated
 
 import typer
 
-from ..core.config import CONFIG_PATH, Config, load_config
+from ..core.config import FEED_PATH, Config, load_config
 from ..core.log import get_logger, setup_logging
 from ..core.settings import Settings, get_settings
 from ..github.client import GitHubClient, GitHubError
 from ..github.issues import IssueStore
 from ..github.labels import ensure_labels, label_specs
 from ..github.ledger import rebuild
-from ..retention import run_retention
 from ..scrapers.runner import run_scrape
 
 log = get_logger(__name__)
@@ -62,7 +61,7 @@ def _config() -> Config:
     try:
         return load_config()
     except Exception as exc:  # noqa: BLE001 - yaml, IO and validation all mean the same thing here
-        log.error("could not load %s: %s", CONFIG_PATH, exc)
+        log.error("could not load config from %s and friends: %s", FEED_PATH.parent, exc)
         raise typer.Exit(1) from exc
 
 
@@ -124,18 +123,32 @@ def scrape(
     log.info("scrape done: %d issues created", created)
 
 
-@app.command("filter")
-def filter_cmd() -> None:
-    """Ask the LLM which raw issues are worth publishing, and label them accordingly."""
+@app.command()
+def classify() -> None:
+    """Decide which raw issues belong in the feed. Cheap model, no prose."""
     settings = _boot()
     config = _config()
     _require(settings, "GEMINI_API_KEY")
 
-    from ..llm.filter import run_filter
+    from ..llm.classify import run_classify
 
     with _store(settings) as store:
-        ready, rejected = run_filter(settings, config, store)
-    log.info("filter done: %d ready, %d rejected", ready, rejected)
+        kept, rejected = run_classify(settings, config, store)
+    log.info("classify done: %d kept, %d rejected", kept, rejected)
+
+
+@app.command()
+def summarize() -> None:
+    """Write up the issues that survived classification."""
+    settings = _boot()
+    config = _config()
+    _require(settings, "GEMINI_API_KEY")
+
+    from ..llm.summarize import run_summarize
+
+    with _store(settings) as store:
+        written = run_summarize(settings, config, store)
+    log.info("summarize done: %d articles ready", written)
 
 
 @app.command()
@@ -207,16 +220,6 @@ def bootstrap_labels() -> None:
     with _client(settings) as client:
         ensure_labels(client, specs)
     log.info("bootstrap done: %d labels reconciled", len(specs))
-
-
-@app.command()
-def retention() -> None:
-    """Close published issues that are past the retention window."""
-    settings = _boot()
-
-    with _store(settings) as store:
-        closed = run_retention(settings, store)
-    log.info("retention done: %d issues closed", closed)
 
 
 @app.command("rebuild-ledger")

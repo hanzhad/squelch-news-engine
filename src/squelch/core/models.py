@@ -15,8 +15,12 @@ class Status(StrEnum):
     """Lifecycle of an article. The label on the issue is the source of truth."""
 
     RAW = "status:1-raw"
-    READY = "status:2-ready"
-    PUBLISHED = "status:3-published"
+    # Judged worth publishing, but not yet written up. The two steps are
+    # separate so the cheap model can do the judging and the expensive one
+    # only ever sees articles that survived it.
+    RELEVANT = "status:2-relevant"
+    READY = "status:3-ready"
+    PUBLISHED = "status:4-published"
     REJECTED = "status:rejected"
 
 
@@ -58,20 +62,27 @@ class RawArticle(BaseModel):
         return url_uid(self.url)
 
 
-class Verdict(BaseModel):
-    """The LLM's judgement on one article. Also used as the response schema."""
+class Classification(BaseModel):
+    """Stage one: does this belong in the feed at all?
+
+    Deliberately carries no summary. Asking one call to both judge and write
+    makes the judgement worse — the model has already started composing the
+    pitch — and it spends tokens on articles that are about to be closed.
+    """
 
     relevant: bool = Field(description="True if this is substantive news worth publishing")
     reason: str = Field(description="One short sentence explaining the decision")
-    summary: str = Field(
-        default="",
-        description="2-4 sentence summary of the article. Empty when relevant is false.",
-    )
     tags: list[str] = Field(
         default_factory=list,
         description="Topic tags chosen from the allowed list. At most 3.",
     )
     score: int = Field(default=0, ge=0, le=10, description="Importance, 0-10")
+
+
+class Summary(BaseModel):
+    """Stage two: the write-up, produced only for articles that got through."""
+
+    summary: str = Field(description="2-4 sentence summary of the article, in plain English")
 
 
 class DigestEntry(BaseModel):

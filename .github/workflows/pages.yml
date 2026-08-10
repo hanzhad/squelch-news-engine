@@ -4,7 +4,7 @@ on:
   workflow_run:
     # Rebuild after new articles land, rather than on a clock: publish is the
     # only stage that changes what the archive shows.
-    workflows: ["publish"]
+    workflows: ["summarize"]
     types: [completed]
   workflow_dispatch:
 

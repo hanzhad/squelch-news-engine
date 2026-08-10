@@ -16,7 +16,10 @@ class Settings(BaseSettings):
     # Actions sets this to "owner/repo" automatically.
     github_repository: str = Field(default="", validation_alias="GITHUB_REPOSITORY")
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
-    gemini_model: str = Field(default="gemini-3.6-flash", validation_alias="GEMINI_MODEL")
+    # Model ids live in config/models.yaml; these override them when set, so a
+    # new model can be tried from the Actions UI without a commit.
+    gemini_model: str = Field(default="", validation_alias="GEMINI_MODEL")
+    gemini_classify_model: str = Field(default="", validation_alias="GEMINI_CLASSIFY_MODEL")
     discord_webhook_url: str = Field(default="", validation_alias="DISCORD_WEBHOOK_URL")
 
     # --- throughput --------------------------------------------------------
@@ -30,6 +33,8 @@ class Settings(BaseSettings):
     # with a pause between them keeps us clear of it.
     llm_batch_size: int = 20
     llm_delay_seconds: float = 5.0
+    # Stage one sees only the top of an article — enough to tell news from noise.
+    classify_body_chars: int = 1500
 
     publish_batch_size: int = 10
     publish_delay_seconds: float = 2.0
@@ -38,7 +43,6 @@ class Settings(BaseSettings):
     request_timeout: float = 30.0
     # Bounded by GitHub's 65536-character issue body, not by disk.
     seen_max_entries: int = 3500
-    published_retention_days: int = 30
 
     @property
     def repo_owner(self) -> str:

@@ -1,41 +1,11 @@
-# Editorial policy and source catalogue.
+# The source catalogue. Ids become `source:<id>` labels, so keep them ASCII
+# and stable — renaming one makes its old issues look like a different source.
 #
-# `focus` is the main knob: it goes straight into the filter prompt and decides
-# what survives. Rewrite it in plain language, not keywords.
-
-# Public name of the feed: masthead, RSS channel title, digest header. This is
-# the community's brand, independent of what the repository is called.
-title: Squelch
-
-focus: |
-  Substantive news about AI, software engineering and the infrastructure around
-  them, for readers who are tired of hype.
-
-  Let through: model and tool releases with concrete capabilities or pricing,
-  technical write-ups with real detail, security incidents and vulnerabilities,
-  infrastructure and outage post-mortems, funding or policy news that visibly
-  changes what practitioners can build, and honest negative results.
-
-  Filter out: speculation about the future with no new facts, "X will change
-  everything" opinion pieces, listicles and prompt-tip roundups, course and
-  newsletter promotion, repackaged press releases with nothing added, personal
-  branding threads, and anything whose whole content is an unnamed source
-  claiming a model is coming.
-
-# The LLM may only tag from this list, which keeps the label set finite.
-topics:
-  - models
-  - tooling
-  - research
-  - security
-  - infrastructure
-  - product
-  - policy
-  - open-source
-  - hardware
-
-# Article text handed to the LLM is truncated to this many characters.
-max_body_chars: 8000
+# type: rss   a feed URL
+# type: html  a server-rendered listing page plus link_selector
+# type: web   a listing page that needs a real browser (Playwright extra)
+#
+# Editorial policy lives in feed.yaml; which model reads them, in models.yaml.
 
 sources:
   # -- labs and vendors, first-hand ----------------------------------------

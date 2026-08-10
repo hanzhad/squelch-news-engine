@@ -39,11 +39,13 @@ class GeminiError(RuntimeError):
 class GeminiClient:
     """One long-lived client; one way to ask it anything."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, model: str) -> None:
         if not settings.gemini_api_key:
             raise GeminiError("GEMINI_API_KEY is not set")
 
-        self.model = settings.gemini_model
+        # Passed in rather than read from settings: each stage runs its own
+        # model, and which one is a config decision, not a client one.
+        self.model = model
         self._client = genai.Client(
             api_key=settings.gemini_api_key,
             # HttpOptions counts the timeout in milliseconds.

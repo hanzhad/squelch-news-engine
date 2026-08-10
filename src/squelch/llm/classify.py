@@ -1,18 +1,21 @@
-"""The gate between everything scraped and the handful worth publishing.
+"""Stage one: decide whether an article belongs in the feed at all.
 
-Each article waits at ``status:1-raw`` until the model has an opinion about it.
-Work is capped and paced on purpose: the free Gemini tier is measured in
-requests per minute, and an issue left raw is picked up by the next cron tick,
-so falling behind costs nothing while overrunning the quota costs the run. For
-the same reason a failed call leaves the issue exactly as it was — retry is the
-next run's job, not this one's.
+Runs on everything scraped, which is why it uses the cheapest model and reads
+only the top of an article — enough to tell news from noise. It writes no prose:
+articles that survive are written up later, and the ones that do not are closed
+without ever costing a summary.
+
+Work is capped and paced on purpose. An article left raw is picked up by the
+next cron tick, so falling behind costs nothing while overrunning the quota
+costs the run. For the same reason a failed call leaves the issue exactly as it
+was — retry is the next run's job, not this one's.
 """
 
 from __future__ import annotations
 
 from ..core.config import Config
 from ..core.log import get_logger
-from ..core.models import Status, Verdict
+from ..core.models import Classification, Status
 from ..core.settings import Settings
 from ..core.throttle import paced
 from ..github.client import GitHubError
@@ -28,25 +31,29 @@ MIN_TITLE_CHARS = 30
 MAX_TAGS = 3
 
 
-def run_filter(settings: Settings, config: Config, store: IssueStore) -> tuple[int, int]:
-    """Judge one batch of raw issues. Returns (ready, rejected)."""
+def run_classify(settings: Settings, config: Config, store: IssueStore) -> tuple[int, int]:
+    """Judge one batch of raw issues. Returns (kept, rejected)."""
     issues = store.list_by_status(Status.RAW, limit=settings.llm_batch_size)
     if not issues:
-        log.info("nothing to filter")
+        log.info("nothing to classify")
         return 0, 0
 
-    client = GeminiClient(settings)
+    model = settings.gemini_classify_model or prompts.load_models().classify
+    client = GeminiClient(settings, model)
     allowed = _topic_lookup(config)
-    ready = 0
-    rejected = 0
+    log.info("classifying %d issues with %s", len(issues), model)
 
+    kept = 0
+    rejected = 0
     for issue in paced(issues, settings.llm_delay_seconds):
         if not _judgeable(issue):
             log.warning("#%d has no text and a thin title, skipping: %s", issue.number, issue.title)
             continue
 
         verdict = client.structured(
-            prompts.filter_prompt(config, issue), Verdict, prompts.filter_system()
+            prompts.classify_prompt(config, issue, settings.classify_body_chars),
+            Classification,
+            prompts.system("classify"),
         )
         if verdict is None:
             log.warning("#%d got no verdict, staying raw", issue.number)
@@ -55,19 +62,19 @@ def run_filter(settings: Settings, config: Config, store: IssueStore) -> tuple[i
         verdict = verdict.model_copy(update={"tags": _clean_tags(verdict.tags, allowed)})
 
         try:
-            store.apply_verdict(issue, verdict)
+            store.apply_classification(issue, verdict)
         except GitHubError as exc:
             # Also stays raw, so the next run re-judges and re-applies it.
             log.error("#%d could not be updated: %s", issue.number, exc)
             continue
 
         if verdict.relevant:
-            ready += 1
+            kept += 1
         else:
             rejected += 1
 
-    log.info("filtered %d issues: %d ready, %d rejected", len(issues), ready, rejected)
-    return ready, rejected
+    log.info("classified %d issues: %d kept, %d rejected", len(issues), kept, rejected)
+    return kept, rejected
 
 
 def _judgeable(issue: IssueRecord) -> bool:

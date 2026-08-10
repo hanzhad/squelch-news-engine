@@ -43,9 +43,10 @@ def build_digest(
     if len(ranked) < len(issues):
         log.info("digesting the top %d of %d published articles", len(ranked), len(issues))
 
-    client = GeminiClient(settings)
+    model = settings.gemini_model or prompts.load_models().digest
+    client = GeminiClient(settings, model)
     digest = client.structured(
-        prompts.digest_prompt(config, days, ranked), Digest, prompts.digest_system()
+        prompts.digest_prompt(config, days, ranked), Digest, prompts.system("digest")
     )
     if digest is None:
         log.error("digest generation failed")

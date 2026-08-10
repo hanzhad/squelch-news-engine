@@ -1,4 +1,10 @@
-"""Source catalogue and editorial policy, loaded from config/sources.yaml."""
+"""Editorial policy and the source catalogue.
+
+Split across files on purpose, one per thing you would sit down to change:
+``feed.yaml`` is what the feed *is*, ``sources.yaml`` is where it looks, and
+``models.yaml`` plus ``prompts/`` are how it decides. Editing the source list
+should never mean scrolling past the policy, and vice versa.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +14,9 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, Field
 
-CONFIG_PATH = Path("config/sources.yaml")
+CONFIG_DIR = Path("config")
+FEED_PATH = CONFIG_DIR / "feed.yaml"
+SOURCES_PATH = CONFIG_DIR / "sources.yaml"
 
 
 class Source(BaseModel):
@@ -32,7 +40,7 @@ class Config(BaseModel):
     # renaming the engine.
     title: str = "Squelch"
     # Plain-language description of what this feed is about. Goes straight into
-    # the filter prompt, so it is the main knob for what survives filtering.
+    # the classifier prompt, so it is the main knob for what survives.
     focus: str
     # The LLM may only tag articles from this list, which keeps the label set
     # on the repository finite.
@@ -45,7 +53,14 @@ class Config(BaseModel):
         return [s for s in self.sources if s.enabled]
 
 
-def load_config(path: Path | None = None) -> Config:
-    target = path or CONFIG_PATH
-    data = yaml.safe_load(target.read_text(encoding="utf-8"))
-    return Config.model_validate(data)
+def _read(path: Path) -> dict:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} must contain a mapping")
+    return data
+
+
+def load_config(feed: Path | None = None, sources: Path | None = None) -> Config:
+    merged = _read(feed or FEED_PATH)
+    merged.update(_read(sources or SOURCES_PATH))
+    return Config.model_validate(merged)

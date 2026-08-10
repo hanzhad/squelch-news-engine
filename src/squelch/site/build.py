@@ -25,7 +25,6 @@ from pydantic import BaseModel, Field
 
 from ..core.config import Config
 from ..core.log import get_logger
-from ..core.models import Status
 from ..core.settings import Settings
 from ..github.issues import IssueRecord, IssueStore
 
@@ -165,7 +164,7 @@ def _write_feed(
 
 def build_site(settings: Settings, config: Config, store: IssueStore, out_dir: Path) -> None:
     """Render every published issue into a self-contained archive in ``out_dir``."""
-    issues = store.list_by_status(Status.PUBLISHED)
+    issues = store.list_in_feed()
     articles = sorted(
         (_as_article(issue) for issue in issues),
         key=lambda article: article.published,

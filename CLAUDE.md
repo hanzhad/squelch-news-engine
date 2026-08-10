@@ -10,19 +10,20 @@ src/squelch/
   core/        models, settings, config loader, URL canonicalization, dedup ledger, logging
   github/      REST client, issue CRUD + body render/parse, label bootstrap
   scrapers/    rss, web (Playwright), text extraction, orchestration
-  llm/         Gemini calls: filter verdicts and the weekly digest
+  llm/         Gemini calls: classify, summarize, weekly digest
   publishers/  Discord webhook
   site/        static archive rendering (templates live in top-level site/templates/)
   cli/         typer app; console script is `squelch`
-config/sources.yaml   editorial policy + source catalogue
+config/               feed.yaml (policy), sources.yaml, models.yaml, prompts/<stage>.yaml
                       the dedup ledger is an issue (label meta:ledger), not a file
 tests/                offline only — fixtures + fake HTTP clients, never the real network
 ```
 
 ## Label state machine
 
-`status:1-raw` → `status:2-ready` → `status:3-published`, plus `status:rejected` (issue closed
-as `not_planned`). Extra labels: `source:<id>`, `topic:<tag>`. The label on the issue is the
+`status:1-raw` → `status:2-relevant` → `status:3-ready` → `status:4-published`, plus
+`status:rejected`. Rejected closes as `not_planned`, published closes as `completed`, so open
+issues are exactly the work still in flight. Extra labels: `source:<id>`, `topic:<tag>`. The label on the issue is the
 source of truth — never introduce a parallel state store. Use `IssueStore._swap_status` to
 change status so that `source:` and `topic:` labels survive.
 
@@ -33,7 +34,7 @@ exactly that case, so keep that path working.
 
 ## Editorial policy lives in config, not in code
 
-`config/sources.yaml` drives what the pipeline does. `focus` goes verbatim into the filter
+`config/` drives what the pipeline does. `focus` goes verbatim into the classifier
 prompt and decides what survives; `topics` bounds the set of `topic:*` labels the LLM may
 apply. Tuning behaviour means editing that file — do not hard-code source lists, keyword
 filters or score thresholds in Python. Adding a topic or source means re-running

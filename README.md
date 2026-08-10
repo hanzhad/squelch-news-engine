@@ -17,10 +17,21 @@ the state machine, and they — not some external table — are the source of tr
 article stands.
 
 ```
-status:1-raw  ──filter──▶  status:2-ready  ──publish──▶  status:3-published
-      │
-      └──filter──▶  status:rejected   (issue closed as not planned)
+status:1-raw ─classify─▶ status:2-relevant ─summarize─▶ status:3-ready ─publish─▶ status:4-published
+     │                                                        │                         │
+     └─classify─▶ status:rejected                             └── in the web archive     └── closed
+                  (closed, not planned)                           from here on              on delivery
 ```
+
+Judging and writing are separate stages because they want different things. The classifier runs
+on everything scraped, needs only the top of an article, and does well enough on the cheapest
+model; the summariser writes prose, so it gets the good model and only ever sees articles that
+already survived. Splitting them also means a bad minute at the API costs a summary rather than
+a verdict — and lets you read `status:rejected` to see what the classifier threw away, with its
+reason rendered in the issue body rather than buried in a comment.
+
+Open issues are exactly the work still in flight: rejected ones close as *not planned*,
+published ones close as *completed*.
 
 Issues additionally carry `source:<id>` (where it came from) and `topic:<tag>` (what it is
 about — the LLM picks tags from the list in the config).
@@ -44,7 +55,7 @@ the cost never grows with the archive. A uid is a hash of the canonicalized URL
 and query-parameter order do not affect it, so the same article arriving from three different
 feeds yields one uid.
 
-## The four pipelines
+## The five pipelines
 
 Each pipeline is its own workflow in `.github/workflows/`, triggered by cron and manually via
 **Actions → Run workflow**.
@@ -52,18 +63,20 @@ Each pipeline is its own workflow in `.github/workflows/`, triggered by cron and
 | Pipeline | Workflow | What it does | Schedule |
 | --- | --- | --- | --- |
 | Scrape | `scrape.yml` | Walks the enabled sources, drops already-seen uids, opens issues labelled `status:1-raw`, updates the ledger issue | `0,30 * * * *` |
-| Filter | `filter.yml` | Sends each raw issue to Gemini together with `focus` from the config and gets a verdict: `status:2-ready` plus a summary and tags, or `status:rejected` and closure | `10,40 * * * *` |
-| Publish | `publish.yml` | Sends ready articles to the Discord webhook and moves them to `status:3-published` | `5,20,35,50 * * * *` |
-| Digest | `digest.yml` | Builds a weekly roundup with trends out of what was published, then closes issues past the retention window | `0 9 * * 1` |
+| Classify | `classify.yml` | Judges each raw issue against `focus` on the cheap model: `status:2-relevant` with tags and a score, or `status:rejected` and closure | `10,40 * * * *` |
+| Summarize | `summarize.yml` | Writes up the survivors on the full model and moves them to `status:3-ready` | `20,50 * * * *` |
+| Publish | `publish.yml` | Sends ready articles to the Discord webhook, marks `status:4-published` and closes them | `5,20,35,50 * * * *` |
+| Digest | `digest.yml` | Builds a weekly roundup with trends out of what reached the feed | `0 9 * * 1` |
 
-The offsets are chosen so the filter always finds the issues the scraper created ten minutes
-earlier, and so publishing never shares a slot with either.
+The offsets stagger the stages so each finds what the one before it just produced.
 
-There is also `pages.yml` — it renders the static archive from published issues
-(`site/templates/` → `site/out/`) and deploys it to GitHub Pages.
+There is also `pages.yml` — it renders the static archive and deploys it to GitHub Pages, and it
+runs off `summarize`, not `publish`. **The web archive and Discord are independent consumers of
+the same queue.** An article is in the archive as soon as it is written up; whether Discord took
+it is a separate fact, recorded on the issue. A broken webhook must not stop the site.
 
-None of the pipelines tries to do all the work in one run: scraping, filtering and publishing
-each cap their batch and leave the remainder for the next tick. This is deliberate — GitHub
+None of the pipelines tries to do all the work in one run: scraping, both LLM stages and
+publishing each cap their batch and leave the remainder for the next tick. This is deliberate — GitHub
 throttles bulk content creation, and the free Gemini tier counts requests per minute.
 
 ## Quick start
@@ -100,16 +113,27 @@ throttles bulk content creation, and the free Gemini tier counts requests per mi
 5. **Enable GitHub Pages.** *Settings → Pages → Source → **GitHub Actions*** (not "Deploy from
    a branch"). The archive appears after the first successful `pages.yml` run.
 
-6. **Edit `config/sources.yaml`** for your subject (see below) and run `scrape.yml` by hand to
-   see what comes out.
+6. **Edit `config/feed.yaml` and `config/sources.yaml`** for your subject (see below) and run
+   `scrape.yml` by hand to see what comes out.
 
-## Configuration: `config/sources.yaml`
+## Configuration
 
-All the editorial judgement lives in one file. No code changes needed.
+Everything you would sit down to change lives in `config/`, one file per thing:
+
+| File | What it holds |
+| --- | --- |
+| `feed.yaml` | The name of the feed, `focus`, the allowed `topics`, text limits |
+| `sources.yaml` | The source catalogue and nothing else |
+| `models.yaml` | Which Gemini model runs each stage |
+| `prompts/classify.yaml` | What the judge is told |
+| `prompts/summarize.yaml` | What the writer is told |
+| `prompts/digest.yaml` | What the weekly roundup is told |
+
+No code changes needed for any of it.
 
 ### `focus` — the main knob
 
-The `focus` text goes into the filter prompt verbatim, so it decides what survives at all.
+The `focus` text goes into the classifier prompt verbatim, so it decides what survives at all.
 Write it in plain language rather than keywords, and always as two lists — what to let through
 and what to cut. A vague `focus` ("interesting tech stuff") produces a feed full of noise; a
 specific one behaves predictably.
@@ -192,12 +216,12 @@ CLI commands (the console script from `pyproject.toml` is `squelch`):
 | Command | Purpose |
 | --- | --- |
 | `squelch scrape` | walk the sources and open issues |
-| `squelch filter` | run raw issues through the LLM |
+| `squelch classify` | judge raw issues on the cheap model |\n| `squelch summarize` | write up the ones that survived |
 | `squelch publish` | send ready articles to Discord |
 | `squelch digest` | build the weekly digest |
 | `squelch build-site` | render the static archive |
 | `squelch bootstrap-labels` | create or repair labels from the config |
-| `squelch retention` | close old published issues |
+| `squelch rebuild-ledger` | rebuild the dedup ledger from the issues themselves |
 
 Before running for real, see what a command intends to do without writing anything:
 
@@ -219,7 +243,7 @@ DISCORD_WEBHOOK_URL=...
 
 The same file overrides the thresholds in `src/squelch/core/settings.py` — for example
 `SCRAPE_MAX_NEW_ISSUES`, `LLM_DELAY_SECONDS`, `SEEN_MAX_ENTRIES`, `GEMINI_MODEL`,
-`PUBLISHED_RETENTION_DAYS`. Secret values are never committed: only their names live in the
+`CLASSIFY_BODY_CHARS`. Secret values are never committed: only their names live in the
 repository.
 
 ## Known limitations

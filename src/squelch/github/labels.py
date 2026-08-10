@@ -27,10 +27,11 @@ class LabelSpec(NamedTuple):
 
 
 STATUS_LABELS = [
-    LabelSpec(Status.RAW.value, "d4c5f9", "Scraped, waiting for the LLM filter"),
-    LabelSpec(Status.READY.value, "0e8a16", "Passed the filter, waiting to be published"),
-    LabelSpec(Status.PUBLISHED.value, "1d76db", "Delivered to Discord and the web archive"),
-    LabelSpec(Status.REJECTED.value, "b60205", "Filtered out as noise"),
+    LabelSpec(Status.RAW.value, "d4c5f9", "Scraped, waiting to be classified"),
+    LabelSpec(Status.RELEVANT.value, "fef2c0", "Worth publishing, waiting for its write-up"),
+    LabelSpec(Status.READY.value, "0e8a16", "Written up; in the web archive, waiting for Discord"),
+    LabelSpec(Status.PUBLISHED.value, "1d76db", "Delivered to Discord as well"),
+    LabelSpec(Status.REJECTED.value, "b60205", "Classified as noise and closed"),
 ]
 
 

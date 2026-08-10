@@ -1,0 +1,15 @@
+# Which model runs each stage.
+#
+# Google retires model ids on its own schedule — we already lost 1.5 Flash and
+# 2.0 Flash — so they live here rather than buried in the code. The env vars
+# GEMINI_CLASSIFY_MODEL and GEMINI_MODEL override these when set, which is how
+# you try a new one without a commit.
+
+# Stage one is a yes/no call on the top of an article: the cheapest model is
+# enough, and it runs on everything scraped.
+classify: gemini-3.5-flash-lite
+
+# Stage two writes prose, and only ever sees articles that survived stage one.
+summarize: gemini-3.6-flash
+
+digest: gemini-3.6-flash
