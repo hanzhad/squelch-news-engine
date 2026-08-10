@@ -117,8 +117,10 @@ throttles bulk content creation, and the free Gemini tier counts requests per mi
 2. **Add the secrets** under *Settings → Secrets and variables → Actions → New repository
    secret*:
    - `GEMINI_API_KEY` — a key from Google AI Studio;
-   - `DISCORD_WEBHOOK_URL` — the webhook of the target channel (*Channel settings →
-     Integrations → Webhooks*).
+   - `DISCORD_WEBHOOK_URL` — the webhook of the feed channel (*Channel settings →
+     Integrations → Webhooks*);
+   - `DISCORD_DIGEST_WEBHOOK_URL` — optional. A webhook for a channel of the weekly
+     roundup's own; unset means it lands in the feed channel with everything else.
 
    `GITHUB_TOKEN` and `GITHUB_REPOSITORY` are supplied by Actions itself; do not create them.
 
@@ -272,6 +274,7 @@ GITHUB_TOKEN=...
 GITHUB_REPOSITORY=owner/repo
 GEMINI_API_KEY=...
 DISCORD_WEBHOOK_URL=...
+DISCORD_DIGEST_WEBHOOK_URL=...   # optional, defaults to the one above
 ```
 
 The same file overrides the thresholds in `src/squelch/core/settings.py` — for example

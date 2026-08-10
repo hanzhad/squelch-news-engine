@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     gemini_model: str = Field(default="", validation_alias="GEMINI_MODEL")
     gemini_classify_model: str = Field(default="", validation_alias="GEMINI_CLASSIFY_MODEL")
     discord_webhook_url: str = Field(default="", validation_alias="DISCORD_WEBHOOK_URL")
+    # The weekly roundup reads differently from the firehose, so it can have a
+    # channel of its own. Unset means both go to the same webhook.
+    discord_digest_webhook_url: str = Field(
+        default="", validation_alias="DISCORD_DIGEST_WEBHOOK_URL"
+    )
 
     # --- throughput --------------------------------------------------------
     # GitHub throttles *content creation* (issues, comments) far below the
@@ -50,6 +55,11 @@ class Settings(BaseSettings):
     request_timeout: float = 30.0
     # Bounded by GitHub's 65536-character issue body, not by disk.
     seen_max_entries: int = 3500
+
+    @property
+    def digest_webhook_url(self) -> str:
+        """Where the weekly roundup goes — its own channel, or the feed's."""
+        return self.discord_digest_webhook_url or self.discord_webhook_url
 
     @property
     def repo_owner(self) -> str:

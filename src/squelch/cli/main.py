@@ -192,7 +192,11 @@ def digest(
     settings = _boot()
     config = _config()
     _require(settings, "GEMINI_API_KEY")
-    _require(settings, "DISCORD_WEBHOOK_URL")
+    if not settings.digest_webhook_url:
+        # Either webhook will do: the digest channel is optional and falls back
+        # to the feed's.
+        log.error("DISCORD_WEBHOOK_URL is not set")
+        raise typer.Exit(1)
 
     from ..llm.digest import build_digest
     from ..publishers.discord import post_digest

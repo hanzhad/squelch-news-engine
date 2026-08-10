@@ -109,10 +109,11 @@ def _with_wait(url: str) -> str:
 class _Webhook:
     """One webhook connection, with Discord's bucket bookkeeping attached."""
 
-    def __init__(self, settings: Settings) -> None:
-        if not settings.discord_webhook_url:
+    def __init__(self, settings: Settings, url: str = "") -> None:
+        target = url or settings.discord_webhook_url
+        if not target:
             raise DiscordError("DISCORD_WEBHOOK_URL is not set")
-        self._url = _with_wait(settings.discord_webhook_url)
+        self._url = _with_wait(target)
         self._client = httpx.Client(
             timeout=settings.request_timeout,
             headers={"User-Agent": "squelch"},
@@ -385,7 +386,12 @@ def publish_ready(settings: Settings, store: IssueStore) -> int:
 
 
 def post_digest(settings: Settings, digest: Digest) -> None:
-    """Post the weekly roundup as one message."""
-    with _Webhook(settings) as webhook:
+    """Post the weekly roundup as one message, to its own channel if it has one.
+
+    A week of news read back in one sitting is a different thing from the
+    article that just landed, and it gets buried if it arrives in the same
+    stream. Falls back to the feed's webhook when no digest channel is set.
+    """
+    with _Webhook(settings, settings.digest_webhook_url) as webhook:
         message_id = webhook.send(_payload(_digest_embeds(digest)))
     log.info("posted digest as message %s", message_id or "?")
