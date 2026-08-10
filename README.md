@@ -83,6 +83,7 @@ Each pipeline is its own workflow in `.github/workflows/`, triggered by cron and
 | Close | `close.yml` | Closes ready articles that every enabled channel has delivered | `15,35,55 * * * *` |
 | Digest | `digest.yml` | Builds a weekly roundup with trends out of what reached the feed | `0 9 * * 1` |
 | Labels | `labels.yml` | Reconciles the label set with the config | on push to `config/**` |
+| Sources | `sources.yml` | Asks every enabled source for a couple of articles and goes red on any that has none | `17 6 * * 1`, and on PRs touching `sources.yaml` |
 
 Every stage owns its own five-minute slot, so no two ever fire on the same minute and queue
 behind each other on the runner. The offsets also stagger them in order, so each finds what the
@@ -269,6 +270,37 @@ playwright install chromium
 This scraper is deliberately primitive: a listing page plus a link selector. Pagination, logins
 and infinite scroll do not fit here — those call for a purpose-built scraper.
 
+### Keeping the catalogue honest
+
+Sources rot quietly. A vendor restyles its newsroom and `a[href^="/news/"]` matches nothing; a
+WordPress blog stops being an archive and its `/feed/` starts serving an empty comments feed
+instead. Both parse fine and yield nothing, and a scrape that finds nothing is green — as it
+must be, since most half-hours genuinely have no news. So the source that died looks exactly
+like the source that had a quiet week.
+
+`squelch check-sources` is the one command with the opposite rule: it asks every enabled source
+for two articles and fails if any of them has nothing at all.
+
+```bash
+squelch check-sources                    # the whole catalogue
+squelch check-sources --source anthropic # one source, while iterating on its selector
+```
+
+```
+source        type  items  dated    img  status
+msdevblogs    rss       0      0      0  BROKEN: yielded nothing
+anthropic     html      2      2      2  ok
+deepmind      rss       2      2      2  ok
+```
+
+It runs the real scrapers rather than asserting anything about the markup, so there is no second
+description of a source to drift out of step with the first. Dates and pictures are counted but
+never judged — plenty of pages state no date and carry no picture, and failing on that would
+make the check cry wolf until it is ignored.
+
+The `sources` workflow runs it weekly, and on any pull request that touches `sources.yaml`, so a
+selector edit is checked against the live page before it merges.
+
 ### The rest
 
 `max_age_days` is how far back an article may be dated and still count as news. Listing pages
@@ -309,6 +341,7 @@ CLI commands (the console script from `pyproject.toml` is `squelch`):
 | `squelch close-delivered` | close what every enabled channel has delivered |
 | `squelch digest` | build the weekly digest |
 | `squelch build-site` | render the static archive and the feed |
+| `squelch check-sources` | ask every source for two articles, fail on the ones that have none |
 | `squelch bootstrap-labels` | create or repair labels from the config |
 | `squelch rebuild-ledger` | rebuild the dedup ledger from the issues themselves |
 

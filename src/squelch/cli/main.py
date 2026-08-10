@@ -28,6 +28,7 @@ from ..github.client import GitHubClient, GitHubError
 from ..github.issues import IssueStore
 from ..github.labels import ensure_labels, label_specs
 from ..github.ledger import rebuild
+from ..scrapers.health import check_sources, report
 from ..scrapers.runner import run_scrape
 
 log = get_logger(__name__)
@@ -253,6 +254,45 @@ def build_site_cmd(
     with _store(settings) as store:
         build_site(settings, config, store, out, record=record)
     log.info("site written to %s", out)
+
+
+@app.command("check-sources")
+def check_sources_cmd(
+    type_: Annotated[
+        SourceType | None,
+        typer.Option("--type", help="Only check sources of this type."),
+    ] = None,
+    source: Annotated[
+        str | None,
+        typer.Option("--source", help="Only check this source id, for iterating on a selector."),
+    ] = None,
+) -> None:
+    """Ask every enabled source for a couple of articles and fail if one has nothing.
+
+    The one command here that treats an empty result as an error. A scrape must
+    stay green when a source has nothing new; this exists precisely so that a
+    source with nothing *at all* — a moved feed, a selector that stopped
+    matching — stops being invisible. Touches no credentials and writes nothing.
+    """
+    settings = _boot()
+    config = _config()
+
+    results = check_sources(config, settings, type_.value if type_ else None, source)
+    if not results:
+        log.error("no enabled source matched")
+        raise typer.Exit(1)
+    report(results)
+
+    broken = [result for result in results if not result.ok]
+    if broken:
+        log.error(
+            "%d of %d sources are broken: %s",
+            len(broken),
+            len(results),
+            ", ".join(result.source for result in broken),
+        )
+        raise typer.Exit(1)
+    log.info("all %d sources still work", len(results))
 
 
 @app.command("bootstrap-labels")

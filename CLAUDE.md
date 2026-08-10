@@ -9,7 +9,7 @@ GitHub Actions is the scheduler. Python 3.12+, src-layout, package `squelch`.
 src/squelch/
   core/        models, settings, config loader, URL canonicalization, dedup ledger, logging
   github/      REST client, issue CRUD + body render/parse, label bootstrap
-  scrapers/    rss, web (Playwright), text extraction, orchestration
+  scrapers/    rss, web (Playwright), text extraction, orchestration, source health check
   llm/         Gemini calls: classify, summarize, weekly digest
   publishers/  Discord webhook
   site/        static archive rendering (templates live in top-level site/templates/)
