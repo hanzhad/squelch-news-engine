@@ -4,12 +4,33 @@
 # 2.0 Flash — so they live here rather than buried in the code. The env vars
 # GEMINI_CLASSIFY_MODEL and GEMINI_MODEL override these when set, which is how
 # you try a new one without a commit.
+#
+# The free tier meters requests per day, per model, and the ceilings differ by
+# an order of magnitude: the lite models allow 500 a day, gemini-3.6-flash
+# allows 20. Requests — not tokens. We peak around 5% of the token allowance
+# and still ran out of day, so which model a stage sits on is a capacity
+# decision before it is a quality one.
 
-# Stage one is a yes/no call on the top of an article: the cheapest model is
-# enough, and it runs on everything scraped.
+# Stage one judges every scraped article against the policy. Google's own model
+# card names this workload — "high-volume, latency-sensitive tasks like
+# translation and classification" — and 3.5 Flash-Lite beats the 3.1 it
+# replaces across every published benchmark by 12 to 23 points.
+#
+# This is also the stage to spend quality on. A misjudgement here is silent and
+# final: a rejected article closes as not_planned and nobody ever learns what
+# was thrown away. A weak summary, by contrast, is visible in the channel and
+# can be regenerated.
 classify: gemini-3.5-flash-lite
 
 # Stage two writes prose, and only ever sees articles that survived stage one.
-summarize: gemini-3.6-flash
+# On the same model as classify on purpose. The alternative — a second lite
+# model, for a second 500-a-day budget — buys isolation we do not need (a heavy
+# day is about 113 requests across both stages) at the cost of a markedly weaker
+# model. The two stages also run on different cron slots, so they never share a
+# per-minute allowance either.
+summarize: gemini-3.5-flash-lite
 
+# Once a week, and the only stage doing real synthesis: turning eight articles
+# into two trends is harder than restating one. One request against a budget of
+# twenty is exactly where the stronger model is affordable.
 digest: gemini-3.6-flash
