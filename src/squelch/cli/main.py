@@ -155,13 +155,14 @@ def summarize() -> None:
 def publish() -> None:
     """Send ready articles Discord has not seen yet and mark them delivered."""
     settings = _boot()
+    config = _config()
     _require(settings, "DISCORD_WEBHOOK_URL")
 
     from ..publishers.discord import DiscordError, publish_ready
 
     try:
         with _store(settings) as store:
-            sent = publish_ready(settings, store)
+            sent = publish_ready(settings, config, store)
     except DiscordError as exc:
         # A misconfigured webhook is a setup problem, not a crash to read a
         # traceback for.

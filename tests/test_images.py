@@ -105,15 +105,24 @@ def make_record(**meta: object) -> IssueRecord:
     )
 
 
-def test_the_embed_shows_the_picture_when_there_is_one() -> None:
-    embed = _issue_embed(make_record(image="https://cdn.example.com/hero.png"))
+def test_a_lead_article_shows_its_picture_full_width() -> None:
+    embed = _issue_embed(make_record(image="https://cdn.example.com/hero.png", score=8))
 
     assert embed["image"] == {"url": "https://cdn.example.com/hero.png"}
 
 
+def test_an_ordinary_article_shows_the_same_picture_small() -> None:
+    embed = _issue_embed(make_record(image="https://cdn.example.com/hero.png", score=5))
+
+    assert embed["thumbnail"] == {"url": "https://cdn.example.com/hero.png"}
+    assert "image" not in embed
+
+
 def test_the_embed_omits_the_picture_rather_than_sending_an_empty_one() -> None:
     # Discord rejects an embed carrying an empty image url outright.
-    assert "image" not in _issue_embed(make_record())
+    embed = _issue_embed(make_record(score=8))
+
+    assert "image" not in embed and "thumbnail" not in embed
 
 
 def test_the_source_is_the_author_line_not_a_word_in_the_footer() -> None:

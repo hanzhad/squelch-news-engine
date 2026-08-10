@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
+from ..core.config import Config, Emphasis
 from ..core.log import get_logger
 from ..core.models import Digest, DigestEntry
 from ..core.settings import Settings
@@ -47,6 +49,25 @@ MAX_ATTEMPTS = 5
 MAX_BACKOFF = 120.0
 ACCENT_COLOR = 0x8A4B2A
 HIGHLIGHTS_TITLE = "Highlights"
+
+
+class Weight(StrEnum):
+    """How much of the channel one article is given."""
+
+    LEAD = "lead"
+    STANDARD = "standard"
+    BRIEF = "brief"
+
+
+# Height is what a reader actually notices while a channel scrolls past — a lead
+# is several times the size of a brief, and the colour only confirms what the
+# size already said. Kept inside one family so it still reads as one feed;
+# red and green would read as alarm and success, which is not what is meant.
+WEIGHT_COLORS = {
+    Weight.LEAD: 0xD85A30,
+    Weight.STANDARD: ACCENT_COLOR,
+    Weight.BRIEF: 0x4A4A47,
+}
 
 # Must match the channel id in config/delivery.yaml — that is what ties this
 # module to the sent:discord label and to the count that closes an issue.
@@ -246,14 +267,36 @@ def _timestamp(value: Any) -> str | None:
         return None
 
 
-def _issue_embed(issue: IssueRecord) -> dict[str, Any]:
-    """Render one article as a single embed.
+def _weight(issue: IssueRecord, emphasis: Emphasis) -> Weight:
+    """Which tier this article belongs in.
+
+    An article with no score at all — opened by hand, never classified — lands
+    in the middle. Neither promoting nor hiding something we have not judged is
+    the only defensible thing to do with it.
+    """
+    score = issue.meta.get("score")
+    if not isinstance(score, int | float):
+        return Weight.STANDARD
+    if score >= emphasis.lead:
+        return Weight.LEAD
+    if score >= emphasis.standard:
+        return Weight.STANDARD
+    return Weight.BRIEF
+
+
+def _issue_embed(issue: IssueRecord, emphasis: Emphasis | None = None) -> dict[str, Any]:
+    """Render one article as a single embed, sized by what it is worth.
 
     Read top to bottom the way a person scans a feed: who published it, what
     they said, what it is about, and only then the bookkeeping. The source is
     the author line rather than a word buried in the footer, because "is this
     from a lab or from a blog" is the first thing anyone wants to know.
+
+    A brief keeps its headline, its link and its topics and gives up the summary
+    and the picture. It is still a whole article in the channel, reachable in
+    the same two clicks — it just stops competing with the ones that matter.
     """
+    weight = _weight(issue, emphasis or Emphasis())
     # Issues opened by hand never went through the LLM, so they have no summary;
     # the head of the article itself is a better placeholder than nothing.
     body = issue.summary or issue.text
@@ -262,17 +305,19 @@ def _issue_embed(issue: IssueRecord) -> dict[str, Any]:
 
     embed: dict[str, Any] = {
         "title": _trim(issue.title, TITLE_LIMIT),
-        "description": _trim(body, min(SUMMARY_TARGET, DESCRIPTION_LIMIT)),
-        "color": ACCENT_COLOR,
+        "color": WEIGHT_COLORS[weight],
     }
     if issue.url:
         embed["url"] = issue.url
     if issue.source:
         embed["author"] = {"name": _trim(issue.source, AUTHOR_LIMIT)}
-    if issue.image:
-        # The picture the publisher chose for link previews. Discord fetches it
-        # itself, so a dead link costs a blank space, not a failed message.
+
+    # The picture the publisher chose for link previews. Discord fetches it
+    # itself, so a dead link costs a blank space, not a failed message.
+    if issue.image and weight is Weight.LEAD:
         embed["image"] = {"url": issue.image}
+    elif issue.image and weight is Weight.STANDARD:
+        embed["thumbnail"] = {"url": issue.image}
 
     footer = ["squelch"]
     if isinstance(score, int | float):
@@ -290,8 +335,16 @@ def _issue_embed(issue: IssueRecord) -> dict[str, Any]:
         )
         if part
     )
-    if meta_line:
-        embed["fields"] = [{"name": "​", "value": _trim(meta_line, FIELD_VALUE_LIMIT)}]
+    if weight is Weight.BRIEF:
+        # The one line becomes the description rather than a field: a field
+        # carries a blank name row above it, which is most of what a brief was
+        # meant to save.
+        if meta_line:
+            embed["description"] = _trim(meta_line, DESCRIPTION_LIMIT)
+    else:
+        embed["description"] = _trim(body, min(SUMMARY_TARGET, DESCRIPTION_LIMIT))
+        if meta_line:
+            embed["fields"] = [{"name": "​", "value": _trim(meta_line, FIELD_VALUE_LIMIT)}]
 
     stamp = _timestamp(issue.meta.get("published_at")) or _timestamp(issue.created_at)
     if stamp:
@@ -352,7 +405,7 @@ def _digest_embeds(digest: Digest) -> list[dict[str, Any]]:
 # -- entry points -----------------------------------------------------------
 
 
-def publish_ready(settings: Settings, store: IssueStore) -> int:
+def publish_ready(settings: Settings, config: Config, store: IssueStore) -> int:
     """Post ready articles Discord has not seen yet and mark them delivered.
 
     Returns the number of messages actually sent. One bad article never stops
@@ -365,6 +418,7 @@ def publish_ready(settings: Settings, store: IssueStore) -> int:
         log.info("nothing to publish")
         return 0
 
+    emphasis = config.channel(CHANNEL).emphasis
     posted = 0
     relabelled = 0
     with _Webhook(settings) as webhook:
@@ -383,7 +437,7 @@ def publish_ready(settings: Settings, store: IssueStore) -> int:
                 continue
 
             try:
-                message_id = webhook.send(_payload([_issue_embed(issue)]))
+                message_id = webhook.send(_payload([_issue_embed(issue, emphasis)]))
             except Exception as exc:  # noqa: BLE001 - one article must not stop the batch
                 log.error("could not publish #%d: %s", issue.number, exc)
                 continue
