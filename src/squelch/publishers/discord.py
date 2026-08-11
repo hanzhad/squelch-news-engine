@@ -43,6 +43,9 @@ MESSAGE_LIMIT = 6000
 # The name of a thread a webhook creates in a forum channel. Much shorter than
 # a title, and titles routinely run past it.
 THREAD_NAME_LIMIT = 100
+# Tags Discord will accept on one forum post. An article can easily carry more
+# topic labels than this, so the overflow is dropped rather than sent.
+MAX_APPLIED_TAGS = 5
 
 # Well under DESCRIPTION_LIMIT on purpose: a summary that fills a chat window
 # stops being a summary, and the article is one click away.
@@ -406,7 +409,11 @@ def _rejected_embed(issue: IssueRecord) -> dict[str, Any]:
     return embed
 
 
-def _payload(embeds: list[dict[str, Any]], thread_name: str = "") -> dict[str, Any]:
+def _payload(
+    embeds: list[dict[str, Any]],
+    thread_name: str = "",
+    applied_tags: list[str] | None = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "embeds": _fit_embeds(embeds),
         # Headlines routinely contain @handles and words like "everyone";
@@ -418,6 +425,8 @@ def _payload(embeds: list[dict[str, Any]], thread_name: str = "") -> dict[str, A
         # and a thread cannot exist unnamed. Sent to a text channel the same
         # field is a 400, which is why nothing here guesses.
         payload["thread_name"] = _trim(thread_name, THREAD_NAME_LIMIT)
+    if applied_tags:
+        payload["applied_tags"] = applied_tags[:MAX_APPLIED_TAGS]
     return payload
 
 
@@ -473,6 +482,7 @@ def _deliver(
     make_embed: Callable[[IssueRecord], dict[str, Any]],
     delay: float,
     forum: bool = False,
+    tags: Callable[[IssueRecord], list[str]] | None = None,
 ) -> tuple[int, int]:
     """Post each issue and mark it delivered; returns (posted, relabelled).
 
@@ -495,9 +505,14 @@ def _deliver(
 
         try:
             # In a forum the article's own headline names the post, so the
-            # channel reads as a list of stories rather than a wall of cards.
+            # channel reads as a list of stories rather than a wall of cards,
+            # and its topic labels become the tags readers filter by.
             message_id = webhook.send(
-                _payload([make_embed(issue)], issue.title if forum else "")
+                _payload(
+                    [make_embed(issue)],
+                    issue.title if forum else "",
+                    tags(issue) if forum and tags else None,
+                )
             )
         except Exception as exc:  # noqa: BLE001 - one article must not stop the batch
             log.error("could not publish #%d: %s", issue.number, exc)
@@ -564,6 +579,7 @@ def publish_ready(settings: Settings, config: Config, store: IssueStore) -> int:
                 lambda issue, e=emphasis: _issue_embed(issue, e),
                 settings.publish_delay_seconds,
                 channel.forum,
+                lambda issue, c=channel: c.tag_ids(set(issue.labels), MAX_APPLIED_TAGS),
             )
         log.info(
             "%s: published %d issue(s), relabelled %d already posted",
@@ -584,7 +600,8 @@ def publish_rejected(settings: Settings, config: Config, store: IssueStore) -> i
     fallback in ``_Webhook`` would otherwise quietly post rejects into the
     main feed, which is the one thing this channel must never do.
     """
-    if not config.channel(REJECTED_CHANNEL).enabled:
+    rejected = config.channel(REJECTED_CHANNEL)
+    if not rejected.enabled:
         log.info("%s is disabled in delivery.yaml, nothing to do", REJECTED_CHANNEL)
         return 0
     if not settings.discord_rejected_webhook_url:
@@ -611,7 +628,8 @@ def publish_rejected(settings: Settings, config: Config, store: IssueStore) -> i
             REJECTED_CHANNEL,
             _rejected_embed,
             settings.publish_delay_seconds,
-            config.channel(REJECTED_CHANNEL).forum,
+            rejected.forum,
+            lambda issue: rejected.tag_ids(set(issue.labels), MAX_APPLIED_TAGS),
         )
 
     log.info("posted %d rejected issue(s), relabelled %d already posted", posted, relabelled)

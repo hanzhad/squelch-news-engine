@@ -288,6 +288,27 @@ no thread, and refuses a text message that names one. Get it wrong and the run g
 Discord's own complaint in it, which is the intended failure — the alternative would be
 guessing.
 
+A forum can also tag its posts, driven by the labels already on the issue:
+
+```yaml
+  - id: discord-skills
+    forum: true
+    tags:
+      "topic:tooling": "1536677352002560000"
+      "topic:models":  "1536677793474027581"
+```
+
+The ids are Discord's. They are **not** secrets — a tag id names nothing and opens nothing — so
+they belong here in the open next to the channel, not in the environment with the webhook. They
+also cannot be discovered: no webhook endpoint lists a forum's tags, so the mapping is written
+down once by hand. To read an id, create the tag in Discord and take it from the forum's tag
+filter in the page (`forum-tag-<id>`); a pasted tag *name* is refused when the config loads,
+because Discord's complaint about it would otherwise surface days later in a workflow log.
+
+Discord accepts at most five tags on a post, and an article can carry more topics than that, so
+config order decides the overflow — write the most telling label first. A label with no entry is
+simply not tagged, which is what keeps adding a topic to `feed.yaml` from breaking the channel.
+
 ### Hunting skill repositories: the `github` source
 
 Skill collections for coding agents are announced nowhere and hyped everywhere — TikTok
