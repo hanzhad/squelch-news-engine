@@ -122,6 +122,119 @@ def test_a_repository_becomes_an_article_of_its_own_words_and_hard_facts(
     assert "reviews the diff against a checklist" in article.body
 
 
+# -- the inventory -----------------------------------------------------------
+#
+# What the rubric is actually about: the skills a repository contains, as
+# opposed to the ones its README says it contains.
+
+
+def skill_file(name: str = "", description: str = "", body: str = "Steps.") -> str:
+    header = "\n".join(
+        line for line in (f"name: {name}" if name else "", f"description: {description}") if line
+    )
+    return f"---\n{header}\n---\n\n{body}"
+
+
+def repo_with_skills(*names: str) -> tuple[dict[str, FakeResponse], list[str]]:
+    paths = [f"skills/{name}/SKILL.md" for name in names]
+    routes: dict[str, FakeResponse] = {
+        "/search/repositories": FakeResponse({"items": [repo_payload()]}),
+        "/git/trees/main": FakeResponse(
+            {"tree": [{"path": p, "type": "blob"} for p in ["README.md", *paths]]}
+        ),
+        "/readme": FakeResponse(text=README),
+    }
+    for name, path in zip(names, paths, strict=True):
+        routes[f"/contents/{path}"] = FakeResponse(
+            text=skill_file(name, f"does {name} properly")
+        )
+    return routes, paths
+
+
+def test_every_skill_in_the_repository_is_listed_not_only_the_quoted_ones(
+    source, config: Config
+) -> None:  # type: ignore[no-untyped-def]
+    # Three used to be the whole picture, because three was all that was read.
+    routes, _ = repo_with_skills("alpha", "beta", "gamma", "delta", "epsilon")
+
+    body = github_repos.scrape(source, config, FakeClient(routes))[0].body
+
+    for name in ("alpha", "beta", "gamma", "delta", "epsilon"):
+        assert f"- {name} (skills/{name}/SKILL.md): does {name} properly" in body
+
+
+def test_the_inventory_comes_before_the_readme(source, config: Config) -> None:  # type: ignore[no-untyped-def]
+    # Everything downstream reads a prefix of this text — the classifier the
+    # first 1500 characters — so the contents must outrank the sales pitch.
+    routes, _ = repo_with_skills("alpha")
+
+    body = github_repos.scrape(source, config, FakeClient(routes))[0].body
+
+    assert body.index("## Skills present") < body.index("## README")
+
+
+def test_a_skill_that_declares_no_name_is_listed_by_its_directory(
+    source, config: Config
+) -> None:  # type: ignore[no-untyped-def]
+    routes, _ = repo_with_skills("alpha")
+    routes["/contents/skills/alpha/SKILL.md"] = FakeResponse(
+        text=skill_file(description="reviews the diff")
+    )
+
+    body = github_repos.scrape(source, config, FakeClient(routes))[0].body
+
+    assert "- alpha (skills/alpha/SKILL.md): reviews the diff" in body
+
+
+def test_a_skill_with_no_frontmatter_at_all_still_gets_a_line(
+    source, config: Config
+) -> None:  # type: ignore[no-untyped-def]
+    # A skill that declares nothing about itself is a finding, not a gap: the
+    # first prose line is all there is, and its thinness shows.
+    routes, _ = repo_with_skills("alpha")
+    routes["/contents/skills/alpha/SKILL.md"] = FakeResponse(text="# Be thorough\n\nTry hard.")
+
+    body = github_repos.scrape(source, config, FakeClient(routes))[0].body
+
+    assert "- alpha (skills/alpha/SKILL.md): Be thorough" in body
+
+
+def test_a_collection_larger_than_the_read_limit_says_how_much_was_left(
+    source, config: Config
+) -> None:  # type: ignore[no-untyped-def]
+    # Every file read is a request against the API budget, and a silent cut
+    # would read as "this is the whole collection".
+    routes, _ = repo_with_skills(*[f"s{i}" for i in range(github_repos.MAX_SKILL_FILES + 4)])
+
+    body = github_repos.scrape(source, config, FakeClient(routes))[0].body
+
+    assert "- (and 4 more, not read)" in body
+
+
+def test_only_the_first_few_skills_are_quoted_at_length(source, config: Config) -> None:  # type: ignore[no-untyped-def]
+    # The inventory covers the collection; the quotes are there so the reviewer
+    # can see what a skill file in this repository actually looks like.
+    routes, _ = repo_with_skills("alpha", "beta", "gamma", "delta")
+
+    body = github_repos.scrape(source, config, FakeClient(routes))[0].body
+
+    quoted = [name for name in ("alpha", "beta", "gamma", "delta") if f"## skills/{name}" in body]
+    assert quoted == ["alpha", "beta", "gamma"]
+
+
+def test_an_unreadable_skill_file_costs_its_line_and_nothing_else(
+    source, config: Config
+) -> None:  # type: ignore[no-untyped-def]
+    routes, _ = repo_with_skills("alpha", "beta")
+    del routes["/contents/skills/beta/SKILL.md"]
+
+    body = github_repos.scrape(source, config, FakeClient(routes))[0].body
+
+    assert "- alpha (skills/alpha/SKILL.md)" in body
+    assert "skills/beta" not in body
+    assert "Stars: 420" in body
+
+
 def test_a_missing_readme_or_tree_costs_detail_never_the_article(
     source, config: Config
 ) -> None:  # type: ignore[no-untyped-def]

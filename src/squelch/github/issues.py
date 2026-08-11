@@ -16,7 +16,14 @@ from pydantic import BaseModel, Field
 
 from ..core.config import Channel
 from ..core.log import get_logger
-from ..core.models import ALL_STATUSES, Classification, RawArticle, Status, Summary
+from ..core.models import (
+    ALL_STATUSES,
+    Classification,
+    RawArticle,
+    SkillsReview,
+    Status,
+    Summary,
+)
 from ..core.urls import canonicalize, url_uid
 from .client import GitHubClient
 
@@ -97,6 +104,17 @@ class IssueRecord(BaseModel):
         return {
             label[len(SENT_PREFIX) :] for label in self.labels if label.startswith(SENT_PREFIX)
         }
+
+    @property
+    def review(self) -> dict[str, Any]:
+        """The skill-by-skill reading of this repository, if the rubric wrote one.
+
+        Returned as the raw mapping rather than a model: it comes back out of
+        YAML that a human is free to edit in the issue, so every reader of it
+        treats its shape as a suggestion.
+        """
+        record = self.meta.get("review")
+        return record if isinstance(record, dict) else {}
 
     def delivery(self, channel: str) -> dict[str, Any]:
         """What a channel recorded when it delivered — timestamps, message ids."""
@@ -473,9 +491,23 @@ class IssueStore:
             )
             log.info("#%d -> rejected (%s)", issue.number, verdict.reason[:60])
 
-    def apply_summary(self, issue: IssueRecord, summary: Summary) -> None:
-        """Stage two result: the article is written up and ready to publish."""
+    def apply_summary(
+        self,
+        issue: IssueRecord,
+        summary: Summary,
+        review: SkillsReview | None = None,
+    ) -> None:
+        """Stage two result: the article is written up and ready to publish.
+
+        The review, where the rubric wrote one, is stored in the metadata block
+        rather than rendered into the body: it is the publisher's material, and
+        the body is already the place a person reads the article itself.
+        Written in the same request as the summary, so an issue never sits ready
+        with half of what the channel is going to post.
+        """
         meta = dict(issue.meta)
+        if review is not None:
+            meta["review"] = review.model_dump()
         self._patch(
             issue.number,
             body=render_body(meta, issue.text, summary.summary, _verdict_from_meta(meta)),

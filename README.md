@@ -326,11 +326,44 @@ The URL is the human-clickable search page; the scraper runs its `q=` against th
 to repositories created within `max_age_days` and sorted by stars — so what surfaces each run
 is "the new repositories people actually flocked to". The article body is what the repository
 says about itself, hard facts first: stars, forks, dates, file counts, how many `SKILL.md`
-files and shell scripts it contains — then the README and excerpts of the skills themselves,
-which are natural-language descriptions by design. That is exactly the shape the classifier
-and summariser already consume, so no agent and no extra Gemini budget is involved, and
-nothing from the repository is ever executed: this pipeline reads, it does not audit. Tune the
-search by editing the URL; the empty-shell repos are for `focus` to filter, as always.
+files and shell scripts it contains. Then an inventory of the skills that actually exist —
+every `SKILL.md` in the tree, listed by the name and one-line description it declares in its
+own frontmatter — and only after that the README and a few skills quoted at length. The
+inventory comes before the README on purpose: everything downstream reads a prefix of this
+text, so what survives the cut should be the contents rather than the banner at the top of a
+sales pitch. Nothing from the repository is ever executed: this pipeline reads, it does not
+audit. Tune the search by editing the URL; the empty-shell repos are for `focus` to filter,
+as always.
+
+### The rubric's review
+
+A summary says what a repository is. In the skills channel that is not enough — the whole
+question about a collection with 800 stars is whether there is anything behind it — so a
+channel can ask for a review:
+
+```yaml
+  - id: discord-skills
+    forum: true
+    review: true
+```
+
+Articles routed to that channel get a second LLM call in stage two (`config/prompts/review.yaml`,
+its own model in `models.yaml`), which reads the inventory and the files and answers three
+things: what each skill that actually exists does, whether the collection matches what it claims
+about itself, and who would get real value out of it today. The result is posted as the first
+reply inside the article's own thread — the card stays a card, and the argument starts under the
+analysis.
+
+Each skill is marked `thin` or `unclear` where the files do not back the claim; a real one is
+left unmarked, so the list reads as an inventory rather than scored homework. The reply's footer
+says every time that this is a reading of files and that nothing was run, because that is the
+truth and a verdict that implied otherwise would be a lie in the one place it matters.
+
+The verdict is informational and always published, including when it is damning. It is
+deliberately *not* a second gate: whether an article runs at all was decided by the classifier
+against `focus`, where it is visible and arguable, and a silent second filter is the thing this
+feed exists to avoid. `review` requires `forum` — a reply needs a thread to land in — and
+turning the channel off stops the extra call along with the reply.
 
 ### The rejected channel, and voting an article back
 

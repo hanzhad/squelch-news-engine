@@ -43,6 +43,14 @@ so counting it would strand every ready article open. The way back is the rescue
 relevant, not raw, because re-classifying the same text would reject it again; a vote is a
 human override, exactly like flipping the label by hand.
 
+A channel may also declare `review: true` (forum-only). Articles routed to it get a second LLM
+call inside stage two — `llm/review.py`, prompt in `config/prompts/review.yaml` — that walks the
+`SKILL.md` files a repository actually contains and judges each one, and the result is posted as
+the first reply inside the article's thread. `Config.wants_review` asks the routing rather than
+a label list in Python, so switching the channel off stops the call too. The verdict never
+gates anything: rejecting an article is the classifier's job against `focus`, and a second
+silent filter is exactly what this pipeline is against.
+
 Channels can also route by label (`only:` / `skip:` in `delivery.yaml`, matched via
 `Channel.wants`) — that is how the skills rubric gets its own Discord channel. Routing is
 sectioning, never filtering: every article must match some enabled channel, `close_delivered`

@@ -18,6 +18,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
 import httpx
+import yaml
 
 from ..core.config import Config, Source
 from ..core.log import get_logger
@@ -28,12 +29,22 @@ from ..core.text import trim
 log = get_logger(__name__)
 
 API_ROOT = "https://api.github.com"
-# How many SKILL.md files are quoted in the article body, and how much of
-# each. Enough for the LLM to see what the skills actually claim to do; the
-# repository itself is one click away for everything else.
-MAX_SKILL_FILES = 3
+# How many SKILL.md files are read at all. Every one of them costs a request,
+# and the point of the ceiling is the API budget rather than the reading: a
+# collection with more skills than this is described by its first twenty just
+# as well as by all of them, and the count on the Contents line still tells the
+# truth about how many there are.
+MAX_SKILL_FILES = 20
+# How many of those are then quoted at length. The rest contribute their
+# frontmatter — the name and the one-line description a skill is required to
+# declare — which is what makes an inventory of the whole collection affordable.
+MAX_SKILL_EXCERPTS = 3
 SKILL_EXCERPT_CHARS = 1500
+# One inventory line per skill, so twenty of them stay a list rather than
+# becoming the article.
+SKILL_SUMMARY_CHARS = 140
 SCRIPT_SUFFIXES = (".sh", ".bash", ".ps1")
+FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL)
 # A repository description is written to fit under a repository name, not to
 # be a headline, and this is the one source whose titles we compose ourselves.
 # So they are cut here, once, to the shortest limit they will meet downstream —
@@ -115,10 +126,11 @@ def _readme(client: httpx.Client, full_name: str) -> str:
     return response.text if response is not None else ""
 
 
-def _skill_excerpts(
+def _skill_files(
     client: httpx.Client, full_name: str, skill_paths: list[str]
 ) -> list[tuple[str, str]]:
-    excerpts: list[tuple[str, str]] = []
+    """Read the SKILL.md files themselves — once, for both the list and the quotes."""
+    files: list[tuple[str, str]] = []
     for path in skill_paths[:MAX_SKILL_FILES]:
         response = _get(
             client,
@@ -126,8 +138,52 @@ def _skill_excerpts(
             headers=_headers("application/vnd.github.raw+json"),
         )
         if response is not None and response.text.strip():
-            excerpts.append((path, response.text.strip()[:SKILL_EXCERPT_CHARS]))
-    return excerpts
+            files.append((path, response.text.strip()))
+    if len(skill_paths) > MAX_SKILL_FILES:
+        log.info(
+            "%s: read %d of %d SKILL.md files", full_name, MAX_SKILL_FILES, len(skill_paths)
+        )
+    return files
+
+
+def _frontmatter(text: str) -> dict[str, Any]:
+    """The YAML header a skill declares itself with, or nothing.
+
+    A skill's name and one-line description live there by convention, which is
+    the only part of a collection that is cheap to read in full. Anything
+    unparseable is simply not frontmatter: the file still contributes its path.
+    """
+    match = FRONTMATTER_RE.match(text)
+    if not match:
+        return {}
+    try:
+        parsed = yaml.safe_load(match.group(1))
+    except yaml.YAMLError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _skill_line(path: str, text: str) -> str:
+    """One inventory line: what this skill calls itself and what it claims to do."""
+    header = _frontmatter(text)
+    name = str(header.get("name") or "").strip()
+    if not name:
+        # skills/<name>/SKILL.md is the layout everything uses, so the directory
+        # is the name whenever the file does not declare one.
+        parts = path.split("/")
+        name = parts[-2] if len(parts) > 1 else path
+
+    described = " ".join(str(header.get("description") or "").split())
+    if not described:
+        # No declared description. The first prose line says more than the path
+        # does, and a skill that declares nothing is itself worth seeing.
+        match = FRONTMATTER_RE.match(text)
+        body = text[match.end() :] if match else text
+        described = next(
+            (line.strip("# ").strip() for line in body.splitlines() if line.strip()),
+            "no description declared",
+        )
+    return f"- {name} ({path}): {trim(described, SKILL_SUMMARY_CHARS)}"
 
 
 def _headline(full_name: str, description: str) -> str:
@@ -158,8 +214,13 @@ def _body(client: httpx.Client, repo: dict[str, Any], created: datetime | None) 
     """What the repository says about itself, hard facts first.
 
     The numbers and the file counts lead on purpose: they are the part the
-    LLM cannot invent, and the part a hype repository cannot fake. Everything
-    after them is the repository's own words, clearly unverified.
+    LLM cannot invent, and the part a hype repository cannot fake. Then the
+    inventory of skills that actually exist — ahead of the README, because that
+    is the order the question is asked in ("what is in here" before "what does
+    it claim"), and because everything downstream reads a prefix of this text:
+    the classifier sees the first 1500 characters, the summariser the first
+    ``max_body_chars``. What survives both cuts should be the contents rather
+    than the banner at the top of a README.
     """
     full_name = str(repo.get("full_name", ""))
     branch = str(repo.get("default_branch") or "main")
@@ -181,11 +242,18 @@ def _body(client: httpx.Client, repo: dict[str, Any], created: datetime | None) 
             contents += ", includes hooks"
         lines.append(contents)
 
+    skill_files = _skill_files(client, full_name, skill_paths)
+    if skill_files:
+        lines += ["", "## Skills present", ""]
+        lines += [_skill_line(path, text) for path, text in skill_files]
+        if len(skill_paths) > len(skill_files):
+            lines.append(f"- (and {len(skill_paths) - len(skill_files)} more, not read)")
+
     readme = _readme(client, full_name)
     if readme:
         lines += ["", "## README", "", readme]
-    for path, text in _skill_excerpts(client, full_name, skill_paths):
-        lines += ["", f"## {path}", "", text]
+    for path, text in skill_files[:MAX_SKILL_EXCERPTS]:
+        lines += ["", f"## {path}", "", text[:SKILL_EXCERPT_CHARS]]
     return "\n".join(lines).strip()
 
 

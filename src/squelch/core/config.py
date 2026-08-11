@@ -98,6 +98,14 @@ class Channel(BaseModel):
     # forum's tags, so the mapping is written down once by hand and only
     # changes when someone renames a tag in Discord.
     tags: dict[str, str] = Field(default_factory=dict)
+    # Whether articles routed here get a review — the skill-by-skill reading of
+    # what a repository actually contains, written by its own LLM stage and
+    # posted as a follow-up inside the article's thread. A flag on the channel
+    # rather than a list of labels in Python: which articles are skill
+    # collections is already spelled out by this channel's `only`, and saying
+    # it twice would let the two drift apart. Forum-only, since a follow-up
+    # needs a thread to land in.
+    review: bool = False
     emphasis: Emphasis = Field(default_factory=Emphasis)
 
     @field_validator("tags")
@@ -134,6 +142,15 @@ class Channel(BaseModel):
             raise ValueError(
                 f"channel {self.id} sets both `only` and `skip`; pick one — "
                 "their combined meaning would be ambiguous"
+            )
+        if self.review and not self.forum:
+            # The review is a second message inside the article's own thread. A
+            # text channel has no thread to put it in, so it would either be
+            # dropped or land as a loose message under an unrelated article —
+            # and the LLM stage would run and be paid for regardless.
+            raise ValueError(
+                f"channel {self.id} sets `review` without `forum`; a review is posted "
+                "into the article's thread, and a text channel has none"
             )
         return self
 
@@ -177,6 +194,16 @@ class Config(BaseModel):
     def required_channels(self) -> list[str]:
         """The channels an article must reach before it counts as published."""
         return [c.id for c in self.ready_channels]
+
+    def wants_review(self, labels: set[str]) -> bool:
+        """Whether an article carrying ``labels`` is owed a skill-by-skill review.
+
+        Asked of the routing rather than of the labels directly: an article gets
+        a review because some enabled channel publishes reviews and this article
+        belongs there. Switch that channel off and the extra LLM call stops with
+        it, which is the point of asking the question this way round.
+        """
+        return any(c.enabled and c.review and c.wants(labels) for c in self.channels)
 
     def channel(self, channel_id: str) -> Channel:
         """One channel's settings, or the defaults if it is not configured."""

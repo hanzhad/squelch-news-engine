@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator
@@ -111,6 +112,49 @@ class Summary(BaseModel):
     """Stage two: the write-up, produced only for articles that got through."""
 
     summary: str = Field(description="2-4 sentence summary of the article, in plain English")
+
+
+class SkillNote(BaseModel):
+    """One skill as it actually exists in the repository, not as it is advertised."""
+
+    name: str = Field(description="The skill's own name, as the repository's files give it")
+    does: str = Field(description="What it actually does, in one plain sentence")
+    verdict: Literal["real", "thin", "unclear"] = Field(
+        description=(
+            "real: instructions or code with substance behind them. "
+            "thin: a paragraph of prompt dressed up as a tool. "
+            "unclear: the files do not say enough to tell."
+        )
+    )
+
+
+class SkillsReview(BaseModel):
+    """A reading of a skill collection: what is in it, and whether it earns its stars.
+
+    Literal rather than an enum class: pydantic inlines a Literal into the JSON
+    schema, while an enum becomes a ``$ref`` into ``$defs`` that the response
+    schema travelling with the request cannot be relied on to follow.
+    """
+
+    verdict: Literal["substance", "mixed", "hype"] = Field(
+        description="Whether the repository is worth a practitioner's time, on the whole"
+    )
+    promise: str = Field(
+        description=(
+            "One sentence on whether what is inside matches what the repository claims "
+            "about itself. Name the gap when there is one."
+        )
+    )
+    usefulness: str = Field(
+        description=(
+            "One or two sentences on who would get real value out of this today, "
+            "or why nobody would."
+        )
+    )
+    skills: list[SkillNote] = Field(
+        default_factory=list,
+        description="Every skill the repository actually contains, in the order they appear",
+    )
 
 
 class DigestEntry(BaseModel):
