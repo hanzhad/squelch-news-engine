@@ -1,8 +1,9 @@
-"""Prompt assembly from config/prompts.yaml."""
+"""Prompt assembly from the markdown files in prompts/."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -40,6 +41,48 @@ def test_every_shipped_prompt_file_is_valid(stage: str) -> None:
 
     assert loaded.system.strip()
     assert "$focus" in loaded.template
+
+
+def _write(directory: Path, stage: str, text: str) -> Path:
+    (directory / f"{stage}.md").write_text(text, encoding="utf-8")
+    return directory
+
+
+def test_notes_above_the_first_heading_never_reach_the_model(tmp_path: Path) -> None:
+    """The prose at the top of each file is for whoever edits it. It explains
+    the placeholders and the format, and sending it would be both wasteful and
+    confusing to the model."""
+    directory = _write(
+        tmp_path,
+        "notes",
+        "# Notes\n\nPlaceholders: `$focus`. Editing this changes the feed.\n\n"
+        "## System\n\nBe strict.\n\n## Template\n\n$focus\n",
+    )
+
+    loaded = prompts.load_prompt("notes", directory)
+
+    assert loaded.system == "Be strict."
+    assert loaded.template == "$focus"
+
+
+def test_prompt_bodies_keep_their_own_whitespace(tmp_path: Path) -> None:
+    """Prompts are whitespace-sensitive prose: blank lines separate sections the
+    model reads as sections, and continuation lines are indented under their
+    bullet. Nothing may reflow them on the way in."""
+    body = "EDITORIAL POLICY\n\n$focus\n\nRULES\n\n- One rule,\n  continued here."
+    directory = _write(tmp_path, "spaced", f"## System\n\nS.\n\n## Template\n\n{body}\n")
+
+    assert prompts.load_prompt("spaced", directory).template == body
+
+
+def test_a_renamed_section_is_an_error_rather_than_half_a_prompt(tmp_path: Path) -> None:
+    """A file with the heading typed wrong still reads fine to a human, so the
+    failure has to be loud — otherwise the stage quietly runs with no system
+    instruction at all."""
+    directory = _write(tmp_path, "typo", "## System\n\nS.\n\n## Templates\n\n$focus\n")
+
+    with pytest.raises(ValueError, match="`## Template`"):
+        prompts.load_prompt("typo", directory)
 
 
 def test_the_shipped_model_ids_are_named_per_stage() -> None:

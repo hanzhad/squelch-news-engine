@@ -61,7 +61,7 @@ channels:
     # The rubric's point: the post is the repository, and the first reply is a
     # reading of it — every skill that actually exists in the files, what it
     # does, and whether the collection is what it says it is. A separate LLM
-    # stage writes it (config/prompts/review.yaml) and the publisher posts it
+    # stage writes it (prompts/review.md) and the publisher posts it
     # into the thread the article just opened, so the argument starts under the
     # analysis rather than under a link.
     #

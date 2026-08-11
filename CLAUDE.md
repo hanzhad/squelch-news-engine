@@ -15,8 +15,10 @@ src/squelch/
   publishers/  Discord webhook
   site/        static archive rendering (templates live in top-level site/templates/)
   cli/         typer app; console script is `squelch`
-config/               feed.yaml (policy), sources.yaml, models.yaml, prompts/<stage>.yaml
+config/               feed.yaml (policy), sources.yaml, delivery.yaml, models.yaml
                       the dedup ledger is an issue (label meta:ledger), not a file
+prompts/              <stage>.md — one markdown file per LLM stage, `## System` +
+                      `## Template` taken verbatim; see prompts/README.md
 tests/                offline only — fixtures + fake HTTP clients, never the real network
 ```
 
@@ -44,7 +46,7 @@ relevant, not raw, because re-classifying the same text would reject it again; a
 human override, exactly like flipping the label by hand.
 
 A channel may also declare `review: true` (forum-only). Articles routed to it get a second LLM
-call inside stage two — `llm/review.py`, prompt in `config/prompts/review.yaml` — that walks the
+call inside stage two — `llm/review.py`, prompt in `prompts/review.md` — that walks the
 `SKILL.md` files a repository actually contains and judges each one, and the result is posted as
 the first reply inside the article's thread. `Config.wants_review` asks the routing rather than
 a label list in Python, so switching the channel off stops the call too. The verdict never
@@ -76,6 +78,12 @@ prompt and decides what survives; `topics` bounds the set of `topic:*` labels th
 apply. Tuning behaviour means editing that file — do not hard-code source lists, keyword
 filters or score thresholds in Python. Adding a topic or source means re-running
 `squelch bootstrap-labels`.
+
+The wording the models actually see is the other half of that, and lives one level up in
+`prompts/<stage>.md` — top-level because it is prose and gets rewritten more than anything
+else here. `llm/prompts.py` reads the `## System` and `## Template` sections verbatim and
+only substitutes `$name` placeholders; everything above the first heading is notes for the
+editor. Never move a rule out of a prompt file and into Python.
 
 ## Conventions
 

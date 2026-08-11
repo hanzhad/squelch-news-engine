@@ -4,8 +4,8 @@
 # so it — not a threshold and not the code — decides what survives. Write it in
 # plain language, and always as two lists: what to let through, what to cut.
 #
-# Sources live in sources.yaml, models in models.yaml, prompt wording in
-# prompts/.
+# Sources live in sources.yaml, models in models.yaml, and the prompt wording in
+# the top-level prompts/ directory.
 
 # Public name of the feed: masthead, RSS channel title, digest header. This is
 # the community's brand, independent of what the repository is called.
