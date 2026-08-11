@@ -30,6 +30,22 @@ classify: gemini-3.5-flash-lite
 # per-minute allowance either.
 summarize: gemini-3.5-flash-lite
 
+# The skills rubric's own stage: read a repository's files and say, skill by
+# skill, whether there is anything behind them.
+#
+# Started on gemini-3.6-flash, on the theory that judgement needs the stronger
+# model. Measured instead, over the repositories the feed had already seen: the
+# two models returned the same verdict on every one, including the case that
+# actually matters — a directory of links to other people's skills with 800
+# stars and no SKILL.md of its own, which the lite model called hype, with an
+# empty skill list and a sentence naming exactly why. The stronger model's only
+# edge was a more balanced note on who might still want that link list.
+#
+# So the lite model does this job, and the difference it buys is capacity: 500
+# requests a day rather than 20 shared with the digest. What limits the quality
+# of a review here is the prompt, not the parameter count.
+review: gemini-3.5-flash-lite
+
 # Once a week, and the only stage doing real synthesis: turning eight articles
 # into two trends is harder than restating one. One request against a budget of
 # twenty is exactly where the stronger model is affordable.

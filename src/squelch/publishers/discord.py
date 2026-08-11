@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
@@ -92,12 +92,52 @@ SKILLS_CHANNEL = "discord-skills"
 REJECTED_CHANNEL = "discord-rejected"
 # The brief's grey: rejected posts are the quietest thing squelch says.
 REJECTED_COLOR = 0x4A4A47
+
+# -- the rubric's reply ------------------------------------------------------
+#
+# Colour carries the verdict here, unlike in the feed, where it only confirms
+# what the size of an article already said: a review is a judgement, and its
+# whole point is to be readable before it is read. Same family as everything
+# else, brightest for the repositories worth an evening, the brief's grey for
+# the ones that are a banner and four files.
+REVIEW_TITLE = "What is actually in it"
+REVIEW_HEADINGS = {
+    "substance": "Substance",
+    "mixed": "Mixed",
+    "hype": "Hype",
+}
+REVIEW_COLORS = {
+    "substance": 0xD85A30,
+    "mixed": ACCENT_COLOR,
+    "hype": 0x4A4A47,
+}
+# Prefixed to what a skill does, so the weak ones are visible while skimming
+# without a column of icons. A real skill says nothing about itself: it is the
+# baseline, and marking it too would make the list read as scored homework.
+SKILL_MARKS = {"thin": "*thin* — ", "unclear": "*unclear* — "}
+# A reply is one message. Past this the list stops being readable long before
+# it reaches Discord's limit, and the repository is one click away.
+MAX_REVIEWED_SKILLS = 15
+REVIEW_DISCLAIMER = "squelch · read from the repository's files, nothing was executed"
 # Last resort for the name of the digest's forum post; see post_digest.
 DIGEST_THREAD_NAME = "Weekly digest"
 
 
 class DiscordError(RuntimeError):
     pass
+
+
+class Sent(NamedTuple):
+    """What Discord answered with: the message, and where it ended up.
+
+    A forum post is a thread, and the reply that belongs under it has to name
+    that thread. Discord returns it as the message's ``channel_id``; the two
+    happen to be equal for a post's opening message, but reading the field it
+    actually documents beats relying on that.
+    """
+
+    message_id: str
+    thread_id: str
 
 
 # -- text fitting -----------------------------------------------------------
@@ -173,16 +213,30 @@ class _Webhook:
     def close(self) -> None:
         self._client.close()
 
-    def send(self, payload: dict[str, Any]) -> str:
-        """POST one message and return its id (empty if Discord did not say)."""
+    def _target(self, thread_id: str) -> str:
+        """The URL for this one request: the webhook, plus the thread to post into."""
+        if not thread_id:
+            return self._url
+        parts = urlsplit(self._url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        query["thread_id"] = thread_id
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
+
+    def send(self, payload: dict[str, Any], thread_id: str = "") -> Sent:
+        """POST one message and return what Discord said about where it landed.
+
+        With ``thread_id`` the message joins an existing thread instead of
+        opening one — that is how a reply reaches the post it belongs under.
+        """
         last_error = ""
+        target = self._target(thread_id)
         for attempt in range(1, MAX_ATTEMPTS + 1):
             self._wait_out_bucket()
-            response = self._client.post(self._url, json=payload)
+            response = self._client.post(target, json=payload)
             self._note_bucket(response)
 
             if response.is_success:
-                return self._message_id(response)
+                return self._sent(response)
 
             delay = self._retry_delay(response, attempt)
             if delay is None:
@@ -253,12 +307,15 @@ class _Webhook:
             return {}
         return parsed if isinstance(parsed, dict) else {}
 
-    def _message_id(self, response: httpx.Response) -> str:
+    def _sent(self, response: httpx.Response) -> Sent:
         payload = self._json(response)
         message_id = str(payload.get("id", ""))
         if not message_id:
             log.warning("discord accepted the message but returned no id")
-        return message_id
+        # Falls back to the message id: for the opening message of a post the
+        # two are the same, so a reply still has somewhere to go if Discord
+        # ever stops sending the channel back.
+        return Sent(message_id, str(payload.get("channel_id") or message_id))
 
 
 # -- payloads ---------------------------------------------------------------
@@ -359,6 +416,82 @@ def _issue_embed(issue: IssueRecord, emphasis: Emphasis | None = None) -> dict[s
     if stamp:
         embed["timestamp"] = stamp
     return embed
+
+
+def _measured(facts: dict[str, int]) -> str:
+    """The counted part of the headline: stars, and how many skills back them.
+
+    Put beside the verdict rather than in a footer because the two are read
+    together — "Hype · 822 ★ · 0 skills" is the entire argument of this
+    rubric in one line, and it is also what tells a reader whether the
+    repository is worth cloning to check for themselves.
+    """
+    parts = []
+    if facts.get("stars"):
+        parts.append(f"{facts['stars']:,} ★".replace(",", " "))
+    if "skills" in facts:
+        count = facts["skills"]
+        parts.append("1 skill" if count == 1 else f"{count} skills")
+    return " · ".join(parts)
+
+
+def _review_embed(issue: IssueRecord) -> dict[str, Any] | None:
+    """The rubric's reading of a repository, as the reply under its post.
+
+    A list of lines rather than embed fields: this is an argument to be read
+    top to bottom, and fields would break it into a form. Each skill carries
+    its own verdict inline, so a collection of three real tools and nine
+    paragraphs of prompt looks like exactly that at a glance.
+
+    Returns None when there is nothing worth posting — a review the model
+    declined to write, or one edited to nothing by hand on the issue.
+    """
+    review = issue.review
+    verdict = str(review.get("verdict") or "").strip().lower()
+    lines: list[str] = []
+
+    opening = " ".join(str(review.get("promise") or "").split())
+    heading = REVIEW_HEADINGS.get(verdict, "")
+    # The numbers ride with the heading, never with the prose: they came from
+    # the scraper, and a reader has to be able to tell them apart from what a
+    # model concluded.
+    measured = _measured(issue.facts)
+    head = " · ".join(part for part in (f"**{heading}**" if heading else "", measured) if part)
+    if head:
+        lines.append(head + (f" — {opening}" if opening else ""))
+    elif opening:
+        lines.append(f"**{opening}**")
+
+    skills = [s for s in review.get("skills") or [] if isinstance(s, dict)]
+    if skills:
+        lines.append("")
+        lines += [_skill_line(skill) for skill in skills[:MAX_REVIEWED_SKILLS]]
+        if len(skills) > MAX_REVIEWED_SKILLS:
+            lines.append(f"…and {len(skills) - MAX_REVIEWED_SKILLS} more in the repository.")
+
+    usefulness = " ".join(str(review.get("usefulness") or "").split())
+    if usefulness:
+        lines += ["", usefulness]
+
+    if not lines:
+        return None
+
+    # Said every time, at the bottom, in the smallest voice available: this is a
+    # reading of files, not a test run. The scraper never executes anything a
+    # repository ships, and a verdict that sounds like it did would be a lie.
+    return {
+        "title": REVIEW_TITLE,
+        "description": trim("\n".join(lines), DESCRIPTION_LIMIT),
+        "color": REVIEW_COLORS.get(verdict, ACCENT_COLOR),
+        "footer": {"text": REVIEW_DISCLAIMER},
+    }
+
+
+def _skill_line(skill: dict[str, Any]) -> str:
+    name = " ".join(str(skill.get("name") or "").split()) or "unnamed"
+    does = " ".join(str(skill.get("does") or "").split())
+    mark = SKILL_MARKS.get(str(skill.get("verdict") or "").strip().lower(), "")
+    return f"**{name}** — {mark}{does}" if does else f"**{name}** — {mark or 'no description'}"
 
 
 def _rejected_embed(issue: IssueRecord) -> dict[str, Any]:
@@ -462,6 +595,24 @@ def _digest_embeds(digest: Digest) -> list[dict[str, Any]]:
 # -- entry points -----------------------------------------------------------
 
 
+def _post_review(webhook: _Webhook, issue: IssueRecord, thread_id: str) -> str:
+    """Reply to a post with the rubric's reading of it; returns the message id.
+
+    Never fatal. The article is out and correct without its review, so a failure
+    here costs the analysis and nothing else — which is why it is attempted
+    before the delivery is recorded, and why the recorded id is what tells the
+    next run whether to try again.
+    """
+    embed = _review_embed(issue)
+    if embed is None or not thread_id:
+        return ""
+    try:
+        return webhook.send(_payload([embed]), thread_id=thread_id).message_id
+    except Exception as exc:  # noqa: BLE001 - the article itself is already out
+        log.error("#%d is posted but its review is not: %s", issue.number, exc)
+        return ""
+
+
 def _deliver(
     webhook: _Webhook,
     store: IssueStore,
@@ -471,6 +622,7 @@ def _deliver(
     delay: float,
     forum: bool = False,
     tags: Callable[[IssueRecord], list[str]] | None = None,
+    review: bool = False,
 ) -> tuple[int, int]:
     """Post each issue and mark it delivered; returns (posted, relabelled).
 
@@ -480,12 +632,25 @@ def _deliver(
     posted = 0
     relabelled = 0
     for issue in paced(issues, delay):
-        known_id = str(issue.delivery(channel).get("message_id") or "")
+        record = issue.delivery(channel)
+        known_id = str(record.get("message_id") or "")
         if known_id:
             # A previous run posted this and died before its label landed.
-            # Reposting would double it up, so only the label moves.
+            # Reposting would double it up, so only the label moves — but the
+            # reply may be what it died on, so that part is retried here. This
+            # is the one chance it gets: after the label, the article leaves
+            # the queue for good.
+            #
+            # Everything that run recorded is carried forward except when it
+            # happened — record_delivery stamps that itself, and keeping the
+            # old value would freeze the delivery time at the run that failed.
+            details = {k: v for k, v in record.items() if k != "at"}
+            details["message_id"] = known_id
+            if review and not record.get("review_message_id"):
+                thread_id = str(record.get("thread_id") or known_id)
+                details["review_message_id"] = _post_review(webhook, issue, thread_id)
             try:
-                store.record_delivery(issue, channel, {"message_id": known_id})
+                store.record_delivery(issue, channel, details)
                 relabelled += 1
             except Exception as exc:  # noqa: BLE001 - retried on the next run
                 log.error("#%d is already on Discord but will not relabel: %s", issue.number, exc)
@@ -495,7 +660,7 @@ def _deliver(
             # In a forum the article's own headline names the post, so the
             # channel reads as a list of stories rather than a wall of cards,
             # and its topic labels become the tags readers filter by.
-            message_id = webhook.send(
+            sent = webhook.send(
                 _payload(
                     [make_embed(issue)],
                     issue.title if forum else "",
@@ -507,15 +672,23 @@ def _deliver(
             continue
         posted += 1
 
+        details: dict[str, Any] = {"message_id": sent.message_id}
+        if review:
+            # The analysis is the reason this channel is a forum: it goes in as
+            # a reply under the post, where the argument about it belongs, and
+            # the thread id is kept so a failed reply can be retried above.
+            details["thread_id"] = sent.thread_id
+            details["review_message_id"] = _post_review(webhook, issue, sent.thread_id)
+
         try:
-            store.record_delivery(issue, channel, {"message_id": message_id})
+            store.record_delivery(issue, channel, details)
         except Exception as exc:  # noqa: BLE001 - the message is out either way
             # Logged loudly: the id exists nowhere else yet, and without it
             # on the issue the next run has no way to know not to repost.
             log.error(
                 "#%d posted as message %s but was not recorded: %s",
                 issue.number,
-                message_id or "?",
+                sent.message_id or "?",
                 exc,
             )
     return posted, relabelled
@@ -568,6 +741,7 @@ def publish_ready(settings: Settings, config: Config, store: IssueStore) -> int:
                 settings.publish_delay_seconds,
                 channel.forum,
                 lambda issue, c=channel: c.tag_ids(set(issue.labels), MAX_APPLIED_TAGS),
+                channel.review,
             )
         log.info(
             "%s: published %d issue(s), relabelled %d already posted",
@@ -643,5 +817,5 @@ def post_digest(settings: Settings, digest: Digest) -> None:
         thread_name = digest.headline.strip() or DIGEST_THREAD_NAME
 
     with _Webhook(settings, settings.digest_webhook_url) as webhook:
-        message_id = webhook.send(_payload(_digest_embeds(digest), thread_name))
-    log.info("posted digest as message %s", message_id or "?")
+        sent = webhook.send(_payload(_digest_embeds(digest), thread_name))
+    log.info("posted digest as message %s", sent.message_id or "?")

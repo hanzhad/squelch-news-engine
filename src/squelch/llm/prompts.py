@@ -38,6 +38,7 @@ class Prompt(BaseModel):
 class Models(BaseModel):
     classify: str
     summarize: str
+    review: str
     digest: str
 
 
@@ -85,6 +86,23 @@ def summarize_prompt(config: Config, issue: IssueRecord) -> str:
         source=issue.source or "unknown",
         url=issue.url or "unknown",
         body=issue.text.strip()[: config.max_body_chars] or "(no article text was captured)",
+    )
+
+
+def review_prompt(config: Config, issue: IssueRecord) -> str:
+    """The rubric's stage: what is actually in this collection, skill by skill.
+
+    Reads the same body as the write-up rather than the classifier's short
+    window — the inventory of skills is the whole subject here, and it sits
+    further into the text than 1500 characters.
+    """
+    return _fill(
+        load_prompt("review").template,
+        focus=config.focus.strip(),
+        title=issue.title,
+        source=issue.source or "unknown",
+        url=issue.url or "unknown",
+        body=issue.text.strip()[: config.max_body_chars] or "(no repository text was captured)",
     )
 
 

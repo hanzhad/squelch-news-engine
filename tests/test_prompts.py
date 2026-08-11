@@ -34,7 +34,7 @@ def issue() -> IssueRecord:
     )
 
 
-@pytest.mark.parametrize("stage", ["classify", "summarize", "digest"])
+@pytest.mark.parametrize("stage", ["classify", "summarize", "review", "digest"])
 def test_every_shipped_prompt_file_is_valid(stage: str) -> None:
     loaded = prompts.load_prompt(stage)
 
@@ -45,7 +45,7 @@ def test_every_shipped_prompt_file_is_valid(stage: str) -> None:
 def test_the_shipped_model_ids_are_named_per_stage() -> None:
     models = prompts.load_models()
 
-    assert models.classify and models.summarize and models.digest
+    assert models.classify and models.summarize and models.review and models.digest
 
 
 def test_the_per_article_stages_stay_off_the_digest_s_model() -> None:
@@ -57,6 +57,7 @@ def test_the_per_article_stages_stay_off_the_digest_s_model() -> None:
 
     assert models.classify != models.digest
     assert models.summarize != models.digest
+    assert models.review != models.digest
 
 
 def test_classify_prompt_quotes_the_policy_verbatim(config: Config, issue: IssueRecord) -> None:
@@ -119,6 +120,7 @@ def test_the_real_config_and_prompts_compose(issue: IssueRecord) -> None:
     for text in (
         prompts.classify_prompt(config, issue, 1500),
         prompts.summarize_prompt(config, issue),
+        prompts.review_prompt(config, issue),
         prompts.digest_prompt(config, 7, [issue]),
     ):
         assert "EDITORIAL POLICY" in text

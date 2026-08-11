@@ -46,6 +46,7 @@ def make_settings(**overrides: object) -> Settings:
 @pytest.fixture(autouse=True)
 def fake_webhook(monkeypatch: pytest.MonkeyPatch) -> type[FakeWebhook]:
     FakeWebhook.sent = []
+    FakeWebhook.threads = []
     monkeypatch.setattr(discord, "_Webhook", FakeWebhook)
     return FakeWebhook
 

@@ -58,6 +58,19 @@ channels:
     enabled: true
     forum: true
     only: ["topic:claude-skills", "source:claude-skills"]
+    # The rubric's point: the post is the repository, and the first reply is a
+    # reading of it — every skill that actually exists in the files, what it
+    # does, and whether the collection is what it says it is. A separate LLM
+    # stage writes it (config/prompts/review.yaml) and the publisher posts it
+    # into the thread the article just opened, so the argument starts under the
+    # analysis rather than under a link.
+    #
+    # It is published as written, including when it is damning. Nothing in it
+    # decides whether the article runs — the classifier already made that call,
+    # and a second silent gate is exactly what this feed is against.
+    #
+    # Switching this off stops the extra LLM call as well as the reply.
+    review: true
     # Which issue label becomes which forum tag. The ids are Discord's, not
     # ours, and they are not secrets — they name nothing and open nothing — so
     # they live here rather than in the environment. There is also no way to

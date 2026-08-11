@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator
@@ -42,6 +43,13 @@ class RawArticle(BaseModel):
     # The picture the publisher put on the article for link previews. Optional
     # everywhere downstream: plenty of pages have none.
     image: str = ""
+    # Whatever this source could count rather than read — stars, files, how
+    # many skills a repository actually ships. Kept apart from the body so a
+    # number a reader is going to act on never travels through the LLM, and
+    # left empty by every source that has nothing to count. Measured when the
+    # article was scraped, which for a repository gathering stars by the hour
+    # is the only honest thing it could be.
+    facts: dict[str, int] = Field(default_factory=dict)
 
     @field_validator("published_at")
     @classmethod
@@ -111,6 +119,58 @@ class Summary(BaseModel):
     """Stage two: the write-up, produced only for articles that got through."""
 
     summary: str = Field(description="2-4 sentence summary of the article, in plain English")
+
+
+class SkillNote(BaseModel):
+    """One skill as it actually exists in the repository, not as it is advertised."""
+
+    name: str = Field(description="The skill's own name, as the repository's files give it")
+    does: str = Field(description="What it actually does, in one plain sentence")
+    verdict: Literal["real", "thin", "unclear"] = Field(
+        description=(
+            "real: instructions or code with substance behind them. "
+            "thin: a paragraph of prompt dressed up as a tool. "
+            "unclear: the files do not say enough to tell."
+        )
+    )
+
+
+class SkillsReview(BaseModel):
+    """A reading of a skill collection: what is in it, and whether it earns its stars.
+
+    Literal rather than an enum class: pydantic inlines a Literal into the JSON
+    schema, while an enum becomes a ``$ref`` into ``$defs`` that the response
+    schema travelling with the request cannot be relied on to follow.
+    """
+
+    verdict: Literal["substance", "mixed", "hype"] = Field(
+        description=(
+            "How much of this repository is its own work with something behind it. "
+            "substance: original skills carrying real instructions, code or reference. "
+            "mixed: some of that among filler, or someone else's work with a real "
+            "addition on top. hype: nothing of its own — a link list, a mirror, a "
+            "translation, install instructions. Judge the contents, not whether the "
+            "README was honest about them: a repository that accurately describes "
+            "itself as a copy of someone else's work is still a copy."
+        )
+    )
+    promise: str = Field(
+        description=(
+            "One sentence on whether what is inside matches what the repository claims "
+            "about itself. Name the gap when there is one."
+        )
+    )
+    usefulness: str = Field(
+        description=(
+            "One or two sentences naming who would open this and for what task, "
+            "or saying plainly that nobody would. No 'immediate value', no "
+            "'production-ready' — the job, not the pitch."
+        )
+    )
+    skills: list[SkillNote] = Field(
+        default_factory=list,
+        description="Every skill the repository actually contains, in the order they appear",
+    )
 
 
 class DigestEntry(BaseModel):

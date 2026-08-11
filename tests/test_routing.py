@@ -11,7 +11,7 @@ from squelch.core.models import Status
 from squelch.core.settings import Settings
 from squelch.github.issues import IssueStore, render_body
 from squelch.publishers import discord
-from squelch.publishers.discord import DiscordError, publish_ready
+from squelch.publishers.discord import DiscordError, Sent, publish_ready
 
 FEED = "https://discord.com/api/webhooks/1/feed"
 SKILLS = "https://discord.com/api/webhooks/2/skills"
@@ -55,6 +55,9 @@ class FakeWebhook:
     """Records what publish_ready would post, and to which webhook."""
 
     sent: list[tuple[str, dict[str, Any]]] = []
+    # Threads a message was posted into, in the same order as `sent`, so a test
+    # can tell an opening post from a reply under one.
+    threads: list[str] = []
 
     def __init__(self, settings: Settings, url: str = "") -> None:
         self.url = url or settings.discord_webhook_url
@@ -65,9 +68,11 @@ class FakeWebhook:
     def __exit__(self, *exc: object) -> None:
         return None
 
-    def send(self, payload: dict[str, Any]) -> str:
+    def send(self, payload: dict[str, Any], thread_id: str = "") -> Sent:
         FakeWebhook.sent.append((self.url, payload))
-        return f"msg-{len(FakeWebhook.sent)}"
+        FakeWebhook.threads.append(thread_id)
+        n = len(FakeWebhook.sent)
+        return Sent(f"msg-{n}", thread_id or f"thread-{n}")
 
 
 def make_issue(number: int, *, labels: list[str]) -> dict[str, Any]:
@@ -105,6 +110,7 @@ def make_settings(**overrides: object) -> Settings:
 @pytest.fixture(autouse=True)
 def fake_webhook(monkeypatch: pytest.MonkeyPatch) -> type[FakeWebhook]:
     FakeWebhook.sent = []
+    FakeWebhook.threads = []
     monkeypatch.setattr(discord, "_Webhook", FakeWebhook)
     return FakeWebhook
 
