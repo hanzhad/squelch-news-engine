@@ -2,9 +2,9 @@
 
 Split across files on purpose, one per thing you would sit down to change:
 ``feed.yaml`` is what the feed *is*, ``sources.yaml`` is where it looks,
-``delivery.yaml`` is where it goes, and ``models.yaml`` plus ``prompts/`` are
-how it decides. Editing the source list should never mean scrolling past the
-policy, and vice versa.
+``delivery.yaml`` is where it goes, and ``models.yaml`` — with the top-level
+``prompts/`` — is how it decides. Editing the source list should never mean
+scrolling past the policy, and vice versa.
 """
 
 from __future__ import annotations

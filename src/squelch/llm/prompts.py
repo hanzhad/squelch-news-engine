@@ -1,9 +1,10 @@
-"""Assembling prompts from the files in ``config/``.
+"""Assembling prompts from the files in ``prompts/``.
 
 What this feed publishes is tuned by rewriting sentences, not logic, so the
-wording lives in ``config/prompts/<stage>.yaml`` — one file per stage — and the
-model ids live in ``config/models.yaml``, because Google retires those on its
-own schedule. This module only fills in the placeholders.
+wording lives in ``prompts/<stage>.md`` — one file per stage, at the top level
+where the writing is easy to find and a diff on it reads like a diff on prose —
+and the model ids live in ``config/models.yaml``, because Google retires those
+on its own schedule. This module only fills in the placeholders.
 
 ``string.Template`` rather than ``str.format``: prompt text is prose that may
 well contain literal braces, and a stray one should not blow up a run.
@@ -11,6 +12,7 @@ well contain literal braces, and a stray one should not blow up a run.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
@@ -22,12 +24,16 @@ from pydantic import BaseModel
 from ..core.config import CONFIG_DIR, Config
 from ..github.issues import IssueRecord
 
-PROMPTS_DIR = CONFIG_DIR / "prompts"
+PROMPTS_DIR = Path("prompts")
 MODELS_PATH = CONFIG_DIR / "models.yaml"
 
 # Enough of each article for the model to see the theme, short enough that forty
 # of them still make a small request.
 DIGEST_SUMMARY_CHARS = 400
+
+# A level-two heading opens a section; everything before the first one is the
+# file's own notes to whoever edits it, and never reaches the model.
+_HEADING = re.compile(r"^##[ \t]+(.+?)[ \t]*$", re.MULTILINE)
 
 
 class Prompt(BaseModel):
@@ -42,10 +48,31 @@ class Models(BaseModel):
     digest: str
 
 
+def _sections(text: str) -> dict[str, str]:
+    """The ``## Heading`` sections of a markdown file, keyed by lowercased name.
+
+    Bodies are kept verbatim apart from the blank lines around them: the prompt
+    is whitespace-sensitive prose, so nothing here reflows, unindents or
+    otherwise interprets it as markdown.
+    """
+    parts = _HEADING.split(text)
+    names, bodies = parts[1::2], parts[2::2]
+    return {name.lower(): body.strip("\n") for name, body in zip(names, bodies, strict=True)}
+
+
 @lru_cache
 def load_prompt(stage: str, directory: Path | None = None) -> Prompt:
-    path = (directory or PROMPTS_DIR) / f"{stage}.yaml"
-    return Prompt.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+    path = (directory or PROMPTS_DIR) / f"{stage}.md"
+    sections = _sections(path.read_text(encoding="utf-8"))
+    missing = [name for name in ("system", "template") if not sections.get(name, "").strip()]
+    if missing:
+        # Worth naming loudly: a renamed heading leaves a file that still reads
+        # fine to a human while silently sending half a prompt.
+        raise ValueError(
+            f"{path} has no {' and no '.join(f'`## {name.title()}`' for name in missing)} "
+            "section — see prompts/README.md for the format"
+        )
+    return Prompt(system=sections["system"], template=sections["template"])
 
 
 @lru_cache

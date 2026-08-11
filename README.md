@@ -178,13 +178,25 @@ Everything you would sit down to change lives in `config/`, one file per thing:
 
 | File | What it holds |
 | --- | --- |
-| `feed.yaml` | The name of the feed, `focus`, the allowed `topics`, how far back news reaches, text limits |
-| `sources.yaml` | The source catalogue and nothing else |
-| `delivery.yaml` | Which channels an article must reach before it counts as published, and how much room it gets there |
-| `models.yaml` | Which Gemini model runs each stage |
-| `prompts/classify.yaml` | What the judge is told |
-| `prompts/summarize.yaml` | What the writer is told |
-| `prompts/digest.yaml` | What the weekly roundup is told |
+| `config/feed.yaml` | The name of the feed, `focus`, the allowed `topics`, how far back news reaches, text limits |
+| `config/sources.yaml` | The source catalogue and nothing else |
+| `config/delivery.yaml` | Which channels an article must reach before it counts as published, and how much room it gets there |
+| `config/models.yaml` | Which Gemini model runs each stage |
+
+The prompts are the exception: they sit at the top level in `prompts/`, one
+markdown file per stage, because they are the text you reread and rewrite most
+often and a diff on them should read like a diff on prose.
+
+| File | What it holds |
+| --- | --- |
+| `prompts/classify.md` | What the judge is told |
+| `prompts/summarize.md` | What the writer is told |
+| `prompts/review.md` | What the skills rubric is told |
+| `prompts/digest.md` | What the weekly roundup is told |
+
+Each file is a `## System` section and a `## Template` section, taken verbatim,
+with notes above them that never reach the model; placeholders are `$name`.
+[`prompts/README.md`](prompts/README.md) has the details.
 
 No code changes needed for any of it.
 
@@ -217,7 +229,7 @@ proper colour and description before the classifier ever reaches for it.
 ### `emphasis` — how loud an article is in Discord
 
 The classifier scores every article 0-10 on one question, asked in
-`prompts/classify.yaml`: how much this changes a working engineer's day. That score decides
+`prompts/classify.md`: how much this changes a working engineer's day. That score decides
 how much of the channel the article gets.
 
 ```yaml
@@ -347,7 +359,7 @@ channel can ask for a review:
     review: true
 ```
 
-Articles routed to that channel get a second LLM call in stage two (`config/prompts/review.yaml`,
+Articles routed to that channel get a second LLM call in stage two (`prompts/review.md`,
 its own model in `models.yaml`), which reads the inventory and the files and answers three
 things: what each skill that actually exists does, whether the collection matches what it claims
 about itself, and who would get real value out of it today. The result is posted as the first
