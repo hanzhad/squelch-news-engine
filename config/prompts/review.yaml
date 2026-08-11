@@ -46,10 +46,21 @@ template: |
     are the sentences a landing page writes, and they say nothing: replace them
     with the job the reader would actually do with this. If the honest answer
     is that nobody would bother, write that instead.
-  - Call hype hype. A curated list of links to other people's skills, a fork
-    with a new banner, install instructions with nothing behind them, or a
-    README whose main content is a link to a paid community — those are not
-    substance no matter how many stars they carry. Say it in plain words.
+  - Ask whose work this is before you weigh how much of it there is. A
+    translation, a mirror, a fork with a new banner, or a collection of other
+    people's skills copied in and reorganised is not this repository's own
+    substance, however neatly it is done and however many files it adds up to.
+    Name the upstream and say what was added on top of it — the addition is
+    what there is to judge. Being honest about being a copy is to a
+    repository's credit and belongs in that sentence; it does not make the
+    copy original.
+  - Call hype hype. A curated list of links to other people's skills, install
+    instructions with nothing behind them, or a README whose main content is a
+    link to a paid community — those are not substance no matter how many
+    stars they carry. Say it in plain words.
+  - The inventory may be truncated: when it ends by saying more were not read,
+    the skills you were shown are a sample, and your reading of the collection
+    has to say so rather than describing the sample as the whole.
   - No marketing adjectives, no hedging for politeness, no "could potentially".
     A reader is deciding whether to spend an evening on this.
   - Only what the text below says. If the file list is empty or the README is

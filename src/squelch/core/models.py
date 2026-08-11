@@ -137,7 +137,15 @@ class SkillsReview(BaseModel):
     """
 
     verdict: Literal["substance", "mixed", "hype"] = Field(
-        description="Whether the repository is worth a practitioner's time, on the whole"
+        description=(
+            "How much of this repository is its own work with something behind it. "
+            "substance: original skills carrying real instructions, code or reference. "
+            "mixed: some of that among filler, or someone else's work with a real "
+            "addition on top. hype: nothing of its own — a link list, a mirror, a "
+            "translation, install instructions. Judge the contents, not whether the "
+            "README was honest about them: a repository that accurately describes "
+            "itself as a copy of someone else's work is still a copy."
+        )
     )
     promise: str = Field(
         description=(
