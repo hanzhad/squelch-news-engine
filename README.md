@@ -359,6 +359,14 @@ left unmarked, so the list reads as an inventory rather than scored homework. Th
 says every time that this is a reading of files and that nothing was run, because that is the
 truth and a verdict that implied otherwise would be a lie in the one place it matters.
 
+The verdict is read beside the numbers it is weighed against — `**Hype** · 72 269 ★ · 864
+skills` — and those come from the scraper, never from the model: they are counted at scrape time
+and carried to the channel in the issue's `facts` block, so a figure a reader is about to act on
+never passes through anything that could round it. A repository whose tree could not be read
+reports its stars and stays silent about skills, because "0 skills" is a finding and a failed
+request is not. Between them, the star count and the skill count are also what tell a reader
+whether the thing is worth cloning to check for themselves.
+
 The verdict is informational and always published, including when it is damning. It is
 deliberately *not* a second gate: whether an article runs at all was decided by the classifier
 against `focus`, where it is visible and arguable, and a silent second filter is the thing this

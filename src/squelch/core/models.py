@@ -43,6 +43,13 @@ class RawArticle(BaseModel):
     # The picture the publisher put on the article for link previews. Optional
     # everywhere downstream: plenty of pages have none.
     image: str = ""
+    # Whatever this source could count rather than read — stars, files, how
+    # many skills a repository actually ships. Kept apart from the body so a
+    # number a reader is going to act on never travels through the LLM, and
+    # left empty by every source that has nothing to count. Measured when the
+    # article was scraped, which for a repository gathering stars by the hour
+    # is the only honest thing it could be.
+    facts: dict[str, int] = Field(default_factory=dict)
 
     @field_validator("published_at")
     @classmethod

@@ -222,6 +222,45 @@ def test_only_the_first_few_skills_are_quoted_at_length(source, config: Config) 
     assert quoted == ["alpha", "beta", "gamma"]
 
 
+# -- counted, not read -------------------------------------------------------
+#
+# The numbers a reader weighs a verdict against travel beside the article
+# rather than inside it, so they reach the channel without passing through a
+# model on the way.
+
+
+def test_the_hard_numbers_travel_beside_the_article(source, config: Config) -> None:  # type: ignore[no-untyped-def]
+    article = github_repos.scrape(source, config, FakeClient(full_routes()))[0]
+
+    assert article.facts == {"stars": 420, "forks": 7, "files": 4, "skills": 1}
+
+
+def test_the_skill_count_is_what_the_repository_has_not_what_was_read(
+    source, config: Config
+) -> None:  # type: ignore[no-untyped-def]
+    # The inventory stops at MAX_SKILL_FILES; the count must not, or a post
+    # would tell a reader a collection is a fifth of its real size.
+    total = github_repos.MAX_SKILL_FILES + 4
+    routes, _ = repo_with_skills(*[f"s{i}" for i in range(total)])
+
+    article = github_repos.scrape(source, config, FakeClient(routes))[0]
+
+    assert article.facts["skills"] == total
+
+
+def test_an_unreadable_tree_reports_no_counts_rather_than_zero(
+    source, config: Config
+) -> None:  # type: ignore[no-untyped-def]
+    # "0 skills" is a finding about a repository; a failed request is not, and
+    # publishing one as the other is the worst thing this rubric could do.
+    routes = {"/search/repositories": FakeResponse({"items": [repo_payload()]})}
+
+    article = github_repos.scrape(source, config, FakeClient(routes))[0]
+
+    assert "skills" not in article.facts
+    assert article.facts["stars"] == 420
+
+
 def test_an_unreadable_skill_file_costs_its_line_and_nothing_else(
     source, config: Config
 ) -> None:  # type: ignore[no-untyped-def]

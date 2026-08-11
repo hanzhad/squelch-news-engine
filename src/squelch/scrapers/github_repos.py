@@ -210,8 +210,16 @@ def _facts_line(repo: dict[str, Any], created: datetime | None) -> str:
     return " · ".join(parts)
 
 
-def _body(client: httpx.Client, repo: dict[str, Any], created: datetime | None) -> str:
+def _body(
+    client: httpx.Client, repo: dict[str, Any], created: datetime | None
+) -> tuple[str, dict[str, int]]:
     """What the repository says about itself, hard facts first.
+
+    Returns the article text and, separately, the numbers behind it. They are
+    the same figures, but the ones handed back here never pass through a model
+    on their way to a reader — a star count published under a verdict is what
+    that verdict is weighed against, and it has to be counted rather than
+    recalled.
 
     The numbers and the file counts lead on purpose: they are the part the
     LLM cannot invent, and the part a hype repository cannot fake. Then the
@@ -254,7 +262,18 @@ def _body(client: httpx.Client, repo: dict[str, Any], created: datetime | None) 
         lines += ["", "## README", "", readme]
     for path, text in skill_files[:MAX_SKILL_EXCERPTS]:
         lines += ["", f"## {path}", "", text[:SKILL_EXCERPT_CHARS]]
-    return "\n".join(lines).strip()
+
+    facts = {
+        "stars": int(repo.get("stargazers_count") or 0),
+        "forks": int(repo.get("forks_count") or 0),
+    }
+    if paths:
+        # Only when the tree was actually readable: a zero here would otherwise
+        # read as "this repository ships no skills", which is a finding, not a
+        # failed request.
+        facts["files"] = len(paths)
+        facts["skills"] = len(skill_paths)
+    return "\n".join(lines).strip(), facts
 
 
 def scrape(source: Source, config: Config, client: httpx.Client) -> list[RawArticle]:
@@ -289,6 +308,7 @@ def scrape(source: Source, config: Config, client: httpx.Client) -> list[RawArti
         if not isinstance(repo, dict) or not repo.get("html_url") or not repo.get("full_name"):
             continue
         created = _parse_date(repo.get("created_at"))
+        body, facts = _body(client, repo, created)
         try:
             articles.append(
                 RawArticle(
@@ -298,10 +318,11 @@ def scrape(source: Source, config: Config, client: httpx.Client) -> list[RawArti
                     url=str(repo["html_url"]),
                     source=source.id,
                     published_at=created,
-                    body=_body(client, repo, created)[: config.max_body_chars],
+                    body=body[: config.max_body_chars],
                     # The owner's avatar is the closest thing a repository has
                     # to a cover picture.
                     image=str((repo.get("owner") or {}).get("avatar_url") or ""),
+                    facts=facts,
                 )
             )
         except ValueError as exc:

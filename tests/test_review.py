@@ -72,11 +72,17 @@ def rubric_config(**overrides: Any) -> Config:
 
 
 def make_issue(
-    number: int, *, labels: list[str], review: dict[str, Any] | None = None
+    number: int,
+    *,
+    labels: list[str],
+    review: dict[str, Any] | None = None,
+    facts: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     meta: dict[str, Any] = {"uid": f"uid{number}", "score": 5}
     if review is not None:
         meta["review"] = review
+    if facts is not None:
+        meta["facts"] = facts
     return {
         "number": number,
         "title": f"acme/skills-{number}",
@@ -86,8 +92,17 @@ def make_issue(
     }
 
 
-def skills_issue(number: int = 2, review: dict[str, Any] | None = REVIEW) -> dict[str, Any]:
-    return make_issue(number, labels=[Status.READY.value, "topic:claude-skills"], review=review)
+def skills_issue(
+    number: int = 2,
+    review: dict[str, Any] | None = REVIEW,
+    facts: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    return make_issue(
+        number,
+        labels=[Status.READY.value, "topic:claude-skills"],
+        review=review,
+        facts=facts,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -258,6 +273,47 @@ def test_the_reply_leads_with_the_verdict_and_ends_with_who_it_helps() -> None:
     embed = to_skills()[1]["embeds"][0]
     assert embed["description"].startswith("**Mixed** — The README lists twelve skills")
     assert embed["description"].rstrip().endswith("nothing here for anyone else.")
+
+
+def test_the_verdict_is_read_next_to_the_numbers_it_is_weighed_against() -> None:
+    # The whole argument of the rubric in one line: a lot of stars, nothing
+    # behind them. It is also what tells a reader whether to clone and look.
+    store = IssueStore(
+        FakeClient([skills_issue(review={"verdict": "hype", "promise": "A banner."},
+                                 facts={"stars": 822, "skills": 0, "forks": 15})])
+    )
+
+    publish_ready(make_settings(), rubric_config(), store)
+
+    assert to_skills()[1]["embeds"][0]["description"].startswith("**Hype** · 822 ★ · 0 skills — ")
+
+
+def test_a_single_skill_is_not_called_one_skills() -> None:
+    store = IssueStore(FakeClient([skills_issue(facts={"stars": 1200, "skills": 1})]))
+
+    publish_ready(make_settings(), rubric_config(), store)
+
+    assert "1 200 ★ · 1 skill —" in to_skills()[1]["embeds"][0]["description"]
+
+
+def test_an_article_scraped_before_the_numbers_existed_still_reads_fine() -> None:
+    # Every issue already in the queue has no facts block, and the rubric must
+    # not start emitting "0 ★" over them.
+    store = IssueStore(FakeClient([skills_issue()]))
+
+    publish_ready(make_settings(), rubric_config(), store)
+
+    text = to_skills()[1]["embeds"][0]["description"]
+    assert text.startswith("**Mixed** — ")
+    assert "★" not in text
+
+
+def test_a_tree_that_could_not_be_read_shows_stars_and_says_nothing_about_skills() -> None:
+    store = IssueStore(FakeClient([skills_issue(facts={"stars": 500, "forks": 3})]))
+
+    publish_ready(make_settings(), rubric_config(), store)
+
+    assert "**Mixed** · 500 ★ — " in to_skills()[1]["embeds"][0]["description"]
 
 
 def test_the_reply_never_claims_more_than_reading_the_files() -> None:

@@ -418,7 +418,24 @@ def _issue_embed(issue: IssueRecord, emphasis: Emphasis | None = None) -> dict[s
     return embed
 
 
-def _review_embed(review: dict[str, Any]) -> dict[str, Any] | None:
+def _measured(facts: dict[str, int]) -> str:
+    """The counted part of the headline: stars, and how many skills back them.
+
+    Put beside the verdict rather than in a footer because the two are read
+    together — "Hype · 822 ★ · 0 skills" is the entire argument of this
+    rubric in one line, and it is also what tells a reader whether the
+    repository is worth cloning to check for themselves.
+    """
+    parts = []
+    if facts.get("stars"):
+        parts.append(f"{facts['stars']:,} ★".replace(",", " "))
+    if "skills" in facts:
+        count = facts["skills"]
+        parts.append("1 skill" if count == 1 else f"{count} skills")
+    return " · ".join(parts)
+
+
+def _review_embed(issue: IssueRecord) -> dict[str, Any] | None:
     """The rubric's reading of a repository, as the reply under its post.
 
     A list of lines rather than embed fields: this is an argument to be read
@@ -429,12 +446,19 @@ def _review_embed(review: dict[str, Any]) -> dict[str, Any] | None:
     Returns None when there is nothing worth posting — a review the model
     declined to write, or one edited to nothing by hand on the issue.
     """
+    review = issue.review
     verdict = str(review.get("verdict") or "").strip().lower()
     lines: list[str] = []
 
     opening = " ".join(str(review.get("promise") or "").split())
-    if verdict in REVIEW_HEADINGS:
-        lines.append(f"**{REVIEW_HEADINGS[verdict]}**" + (f" — {opening}" if opening else ""))
+    heading = REVIEW_HEADINGS.get(verdict, "")
+    # The numbers ride with the heading, never with the prose: they came from
+    # the scraper, and a reader has to be able to tell them apart from what a
+    # model concluded.
+    measured = _measured(issue.facts)
+    head = " · ".join(part for part in (f"**{heading}**" if heading else "", measured) if part)
+    if head:
+        lines.append(head + (f" — {opening}" if opening else ""))
     elif opening:
         lines.append(f"**{opening}**")
 
@@ -579,7 +603,7 @@ def _post_review(webhook: _Webhook, issue: IssueRecord, thread_id: str) -> str:
     before the delivery is recorded, and why the recorded id is what tells the
     next run whether to try again.
     """
-    embed = _review_embed(issue.review)
+    embed = _review_embed(issue)
     if embed is None or not thread_id:
         return ""
     try:

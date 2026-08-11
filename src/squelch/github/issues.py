@@ -106,6 +106,14 @@ class IssueRecord(BaseModel):
         }
 
     @property
+    def facts(self) -> dict[str, int]:
+        """Numbers the scraper counted, for the channels that show them."""
+        record = self.meta.get("facts")
+        if not isinstance(record, dict):
+            return {}
+        return {k: v for k, v in record.items() if isinstance(v, int)}
+
+    @property
     def review(self) -> dict[str, Any]:
         """The skill-by-skill reading of this repository, if the rubric wrote one.
 
@@ -449,6 +457,11 @@ class IssueStore:
             # Only when there is one: an empty key in every body is noise in a
             # format people read by hand.
             meta["image"] = article.image
+        if article.facts:
+            # What the source counted rather than read. Same reason it is kept
+            # out of the body: these are the numbers a reader weighs a verdict
+            # against, so they reach the channel from here, not from a model.
+            meta["facts"] = article.facts
         payload = self.client.request(
             "POST",
             f"/repos/{self.repo}/issues",
