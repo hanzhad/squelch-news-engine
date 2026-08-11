@@ -12,6 +12,7 @@ this pipeline reads, it does not audit.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
@@ -22,6 +23,7 @@ from ..core.config import Config, Source
 from ..core.log import get_logger
 from ..core.models import RawArticle
 from ..core.settings import get_settings
+from ..core.text import trim
 
 log = get_logger(__name__)
 
@@ -32,6 +34,20 @@ API_ROOT = "https://api.github.com"
 MAX_SKILL_FILES = 3
 SKILL_EXCERPT_CHARS = 1500
 SCRIPT_SUFFIXES = (".sh", ".bash", ".ps1")
+# A repository description is written to fit under a repository name, not to
+# be a headline, and this is the one source whose titles we compose ourselves.
+# So they are cut here, once, to the shortest limit they will meet downstream —
+# the name of a Discord forum post. Nothing is lost: the full description is
+# the first line of the article body.
+TITLE_LIMIT = 100
+# Under this there is no room for a description that still says anything, and
+# a three-word fragment reads worse than the repository name on its own.
+MIN_DESCRIPTION_CHARS = 24
+# Where a description stops being a headline: the end of its first sentence,
+# or the bar these repositories use to restate themselves in another language.
+# A full stop only counts when whitespace follows, so "enso.bot" and "v1.2"
+# survive intact.
+FIRST_CLAUSE = re.compile(r"^(.*?)(?:[.!?](?=\s|$)|[。！？]|\s*[|｜])")
 
 
 def _headers(accept: str = "application/vnd.github+json") -> dict[str, str]:
@@ -114,6 +130,18 @@ def _skill_excerpts(
     return excerpts
 
 
+def _headline(full_name: str, description: str) -> str:
+    """``owner/repo`` plus as much of the description as reads like a title."""
+    clause = " ".join(description.split())
+    first = FIRST_CLAUSE.match(clause)
+    if first:
+        clause = first.group(1).strip()
+    room = TITLE_LIMIT - len(full_name) - len(": ")
+    if not clause or room < MIN_DESCRIPTION_CHARS:
+        return full_name
+    return f"{full_name}: {trim(clause, room)}"
+
+
 def _facts_line(repo: dict[str, Any], created: datetime | None) -> str:
     parts = [f"Stars: {repo.get('stargazers_count', 0)}", f"Forks: {repo.get('forks_count', 0)}"]
     if created:
@@ -193,12 +221,12 @@ def scrape(source: Source, config: Config, client: httpx.Client) -> list[RawArti
         if not isinstance(repo, dict) or not repo.get("html_url") or not repo.get("full_name"):
             continue
         created = _parse_date(repo.get("created_at"))
-        description = str(repo.get("description") or "").strip()
-        title = repo["full_name"] + (f": {description}" if description else "")
         try:
             articles.append(
                 RawArticle(
-                    title=title,
+                    title=_headline(
+                        str(repo["full_name"]), str(repo.get("description") or "")
+                    ),
                     url=str(repo["html_url"]),
                     source=source.id,
                     published_at=created,
