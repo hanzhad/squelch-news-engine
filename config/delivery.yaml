@@ -49,8 +49,14 @@ channels:
   # competes with the news. Routing is by label — `only` here mirrors the
   # `skip` above, and the closing pass counts for each article exactly the
   # channels it was routed to. Needs the DISCORD_SKILLS_WEBHOOK_URL secret.
+  # A forum, not a text channel: a skill collection is something you try and
+  # then argue about, so each repository gets a post of its own with the
+  # discussion attached, instead of scrolling away behind the next one. This
+  # must match what the channel actually is in Discord — a forum refuses a
+  # message with no thread name, a text channel refuses one that has it.
   - id: discord-skills
     enabled: true
+    forum: true
     only: ["topic:claude-skills", "source:claude-skills"]
 
   # The community window onto what the classifier threw away, in its own

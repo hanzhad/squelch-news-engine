@@ -268,6 +268,26 @@ enabled channel with no webhook fails the run rather than borrowing the feed's �
 precisely so posts do not end up in the wrong place. The site and the RSS feed stay unrouted:
 they are the archive, and the archive holds everything.
 
+### Forum channels
+
+A Discord forum has no message stream: every post is a thread with a name. A channel that is
+one says so, and each article then arrives as its own post titled with its headline, discussion
+attached, instead of scrolling away behind the next card.
+
+```yaml
+  - id: discord-skills
+    forum: true
+```
+
+For the weekly digest — which has no entry here, being a one-off rather than a queue articles
+pass through — the same switch is the `DIGEST_FORUM` environment variable, next to its webhook.
+Its post is titled with the week's headline.
+
+The flag has to match what the channel actually is: Discord refuses a forum message that names
+no thread, and refuses a text message that names one. Get it wrong and the run goes red with
+Discord's own complaint in it, which is the intended failure — the alternative would be
+guessing.
+
 ### Hunting skill repositories: the `github` source
 
 Skill collections for coding agents are announced nowhere and hyped everywhere — TikTok
@@ -454,7 +474,7 @@ DISCORD_DIGEST_WEBHOOK_URL=...   # optional, defaults to the one above
 
 The same file overrides the thresholds in `src/squelch/core/settings.py` — for example
 `SCRAPE_MAX_NEW_ISSUES`, `LLM_DELAY_SECONDS`, `SEEN_MAX_ENTRIES`, `GEMINI_MODEL`,
-`CLASSIFY_BODY_CHARS`, `FEED_WINDOW_DAYS`. Secret values are never committed: only their names live in the
+`CLASSIFY_BODY_CHARS`, `FEED_WINDOW_DAYS`, `DIGEST_FORUM`. Secret values are never committed: only their names live in the
 repository.
 
 ## Known limitations

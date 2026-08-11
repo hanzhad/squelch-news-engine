@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     discord_digest_webhook_url: str = Field(
         default="", validation_alias="DISCORD_DIGEST_WEBHOOK_URL"
     )
+    # Whether that channel is a forum rather than a text channel. A forum has
+    # no message stream — every post *is* a thread — so the webhook has to name
+    # the thread it is creating, and Discord answers 400 to a message carrying
+    # neither a name nor an existing thread id. A text channel refuses the same
+    # field just as firmly, so it cannot simply always be sent. Getting this
+    # wrong costs a red run with Discord's own complaint in it, not silence.
+    digest_forum: bool = Field(default=False, validation_alias="DIGEST_FORUM")
     # The channel that shows what the classifier threw away. Deliberately not
     # falling back to the feed webhook: rejects in the main feed would defeat
     # the point, so the publish-rejected stage refuses to run without this.

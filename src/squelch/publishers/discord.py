@@ -40,6 +40,9 @@ FIELD_VALUE_LIMIT = 1024
 MAX_FIELDS = 25
 MAX_EMBEDS = 10
 MESSAGE_LIMIT = 6000
+# The name of a thread a webhook creates in a forum channel. Much shorter than
+# a title, and titles routinely run past it.
+THREAD_NAME_LIMIT = 100
 
 # Well under DESCRIPTION_LIMIT on purpose: a summary that fills a chat window
 # stops being a summary, and the article is one click away.
@@ -85,6 +88,8 @@ SKILLS_CHANNEL = "discord-skills"
 REJECTED_CHANNEL = "discord-rejected"
 # The brief's grey: rejected posts are the quietest thing squelch says.
 REJECTED_COLOR = 0x4A4A47
+# Last resort for the name of the digest's forum post; see post_digest.
+DIGEST_THREAD_NAME = "Weekly digest"
 
 
 class DiscordError(RuntimeError):
@@ -401,13 +406,19 @@ def _rejected_embed(issue: IssueRecord) -> dict[str, Any]:
     return embed
 
 
-def _payload(embeds: list[dict[str, Any]]) -> dict[str, Any]:
-    return {
+def _payload(embeds: list[dict[str, Any]], thread_name: str = "") -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "embeds": _fit_embeds(embeds),
         # Headlines routinely contain @handles and words like "everyone";
         # without this Discord would turn them into real pings.
         "allowed_mentions": {"parse": []},
     }
+    if thread_name:
+        # Forum channels only, where it is not optional: the post is a thread,
+        # and a thread cannot exist unnamed. Sent to a text channel the same
+        # field is a 400, which is why nothing here guesses.
+        payload["thread_name"] = _trim(thread_name, THREAD_NAME_LIMIT)
+    return payload
 
 
 def _highlight_field(entry: DigestEntry) -> dict[str, Any]:
@@ -461,6 +472,7 @@ def _deliver(
     channel: str,
     make_embed: Callable[[IssueRecord], dict[str, Any]],
     delay: float,
+    forum: bool = False,
 ) -> tuple[int, int]:
     """Post each issue and mark it delivered; returns (posted, relabelled).
 
@@ -482,7 +494,11 @@ def _deliver(
             continue
 
         try:
-            message_id = webhook.send(_payload([make_embed(issue)]))
+            # In a forum the article's own headline names the post, so the
+            # channel reads as a list of stories rather than a wall of cards.
+            message_id = webhook.send(
+                _payload([make_embed(issue)], issue.title if forum else "")
+            )
         except Exception as exc:  # noqa: BLE001 - one article must not stop the batch
             log.error("could not publish #%d: %s", issue.number, exc)
             continue
@@ -547,6 +563,7 @@ def publish_ready(settings: Settings, config: Config, store: IssueStore) -> int:
                 channel.id,
                 lambda issue, e=emphasis: _issue_embed(issue, e),
                 settings.publish_delay_seconds,
+                channel.forum,
             )
         log.info(
             "%s: published %d issue(s), relabelled %d already posted",
@@ -594,6 +611,7 @@ def publish_rejected(settings: Settings, config: Config, store: IssueStore) -> i
             REJECTED_CHANNEL,
             _rejected_embed,
             settings.publish_delay_seconds,
+            config.channel(REJECTED_CHANNEL).forum,
         )
 
     log.info("posted %d rejected issue(s), relabelled %d already posted", posted, relabelled)
@@ -606,7 +624,18 @@ def post_digest(settings: Settings, digest: Digest) -> None:
     A week of news read back in one sitting is a different thing from the
     article that just landed, and it gets buried if it arrives in the same
     stream. Falls back to the feed's webhook when no digest channel is set.
+
+    In a forum that channel gets one post per week, titled with the week's
+    headline, so a roundup can be discussed without the next one burying the
+    argument. The digest has no entry in delivery.yaml — it is not a queue any
+    article passes through — so the flag lives beside its webhook instead.
     """
+    thread_name = ""
+    if settings.digest_forum:
+        # A forum post cannot be nameless, and a model can return a blank
+        # headline; a dull title beats a 400 that loses the whole week.
+        thread_name = digest.headline.strip() or DIGEST_THREAD_NAME
+
     with _Webhook(settings, settings.digest_webhook_url) as webhook:
-        message_id = webhook.send(_payload(_digest_embeds(digest)))
+        message_id = webhook.send(_payload(_digest_embeds(digest), thread_name))
     log.info("posted digest as message %s", message_id or "?")
