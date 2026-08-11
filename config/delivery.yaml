@@ -58,6 +58,24 @@ channels:
     enabled: true
     forum: true
     only: ["topic:claude-skills", "source:claude-skills"]
+    # Which issue label becomes which forum tag. The ids are Discord's, not
+    # ours, and they are not secrets — they name nothing and open nothing — so
+    # they live here rather than in the environment. There is also no way to
+    # look them up: no webhook endpoint lists a forum's tags, so this mapping
+    # is written once by hand and only changes when a tag is recreated.
+    #
+    # Order matters. Discord accepts at most five tags on a post and an article
+    # can carry more topics than that, so the overflow is decided here, most
+    # telling first, rather than by whatever a set happens to yield. A label
+    # with no entry costs nothing — it is simply not tagged — which is what
+    # keeps adding a topic to feed.yaml from breaking this channel.
+    tags:
+      "topic:tooling": "1536677352002560000"
+      "topic:open-source": "1536677538833899550"
+      "topic:models": "1536677793474027581"
+      "topic:research": "1536677875602686033"
+      "topic:security": "1536677963444133918"
+      "topic:product": "1536678111393873970"
 
   # The community window onto what the classifier threw away, in its own
   # channel of the same server. Consumes status:rejected instead of ready, so

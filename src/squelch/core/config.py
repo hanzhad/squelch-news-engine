@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 CONFIG_DIR = Path("config")
 FEED_PATH = CONFIG_DIR / "feed.yaml"
@@ -91,7 +91,42 @@ class Channel(BaseModel):
     # this has to be told rather than guessed, and it must match what the
     # channel actually is.
     forum: bool = False
+    # Forum tags, as ``issue label -> Discord tag id``. Ids are not secrets —
+    # they name nothing and unlock nothing — so they live here in the open,
+    # beside the channel they belong to, rather than in the environment with
+    # the webhook. They cannot be looked up either: no webhook endpoint lists a
+    # forum's tags, so the mapping is written down once by hand and only
+    # changes when someone renames a tag in Discord.
+    tags: dict[str, str] = Field(default_factory=dict)
     emphasis: Emphasis = Field(default_factory=Emphasis)
+
+    @field_validator("tags")
+    @classmethod
+    def _tag_ids_are_snowflakes(cls, value: dict[str, str]) -> dict[str, str]:
+        """A mistyped id is a 400 at publish time; catch it at load instead.
+
+        Pasting a tag *name* here is the easy mistake, and Discord's complaint
+        about it arrives days later in a workflow log nobody is reading.
+        """
+        bad = {label: tag for label, tag in value.items() if not str(tag).isdigit()}
+        if bad:
+            raise ValueError(
+                f"forum tag ids must be numeric Discord ids, got {bad} — "
+                "copy the id, not the tag's name"
+            )
+        return value
+
+    def tag_ids(self, labels: set[str], limit: int) -> list[str]:
+        """Tag ids for an article carrying ``labels``, in configured order.
+
+        Config order decides which survive the cap, so the mapping is written
+        most-telling-first and the overflow is the author's choice rather than
+        whatever a set happened to yield.
+        """
+        matched = [tag for label, tag in self.tags.items() if label in labels]
+        # The same id can be reached by two labels; Discord rejects duplicates.
+        seen: dict[str, None] = dict.fromkeys(matched)
+        return list(seen)[:limit]
 
     @model_validator(mode="after")
     def _one_selector(self) -> Channel:
