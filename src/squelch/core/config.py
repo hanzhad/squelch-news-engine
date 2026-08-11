@@ -84,6 +84,13 @@ class Channel(BaseModel):
     # an article was actually routed to.
     only: list[str] = Field(default_factory=list)
     skip: list[str] = Field(default_factory=list)
+    # Whether this channel is a Discord forum rather than a text channel. A
+    # forum has no message stream: every article becomes a post of its own,
+    # which the webhook has to name up front. Discord answers 400 to a forum
+    # message with no thread name and to a text message that carries one, so
+    # this has to be told rather than guessed, and it must match what the
+    # channel actually is.
+    forum: bool = False
     emphasis: Emphasis = Field(default_factory=Emphasis)
 
     @model_validator(mode="after")

@@ -45,6 +45,10 @@ jobs:
           # Optional: a webhook for a channel of the digest's own. Unset means
           # the roundup lands in the feed channel with everything else.
           DISCORD_DIGEST_WEBHOOK_URL: ${{ secrets.DISCORD_DIGEST_WEBHOOK_URL }}
+          # Whether that channel is a forum, where the roundup becomes a post
+          # of its own named after the week's headline. Not a secret — it says
+          # nothing an invite would not — so it is a repository variable.
+          DIGEST_FORUM: ${{ vars.DIGEST_FORUM }}
           # Empty on the scheduled run, so config/models.yaml stays in charge.
           GEMINI_MODEL: ${{ inputs.model }}
         run: squelch digest --days 7
