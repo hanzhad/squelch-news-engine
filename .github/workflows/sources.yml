@@ -43,5 +43,10 @@ jobs:
           pip install -e '.[web]'
           playwright install --with-deps chromium
 
+      # Read-only, but the `github` source type searches the API, and an
+      # unauthenticated caller gets a budget small enough to make this job
+      # flaky for reasons that have nothing to do with a source being broken.
       - name: Check sources
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: squelch check-sources

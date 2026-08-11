@@ -38,4 +38,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_SKILLS_WEBHOOK_URL: ${{ secrets.DISCORD_SKILLS_WEBHOOK_URL }}
         run: squelch publish

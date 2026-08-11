@@ -46,6 +46,7 @@ class SourceType(StrEnum):
     RSS = "rss"
     HTML = "html"
     WEB = "web"
+    GITHUB = "github"
 
 
 # -- shared prologue ---------------------------------------------------------
@@ -172,6 +173,45 @@ def publish() -> None:
     log.info("publish done: %d articles sent", sent)
 
 
+@app.command("publish-rejected")
+def publish_rejected_cmd() -> None:
+    """Post recently rejected articles, with their reasons, to their own Discord channel."""
+    settings = _boot()
+    config = _config()
+
+    from ..publishers.discord import REJECTED_CHANNEL, DiscordError, publish_rejected
+
+    if config.channel(REJECTED_CHANNEL).enabled:
+        # Checked here so a forgotten secret fails the run visibly instead of
+        # the channel silently never appearing.
+        _require(settings, "DISCORD_REJECTED_WEBHOOK_URL")
+
+    try:
+        with _store(settings) as store:
+            sent = publish_rejected(settings, config, store)
+    except DiscordError as exc:
+        log.error("discord: %s", exc)
+        raise typer.Exit(1) from exc
+    log.info("publish-rejected done: %d article(s) posted", sent)
+
+
+@app.command()
+def rescue() -> None:
+    """Reopen rejected articles the community voted back with 👍 reactions.
+
+    A vote is the same human override as flipping the label by hand: the
+    article returns as status:2-relevant, so the summariser — not the
+    classifier that already rejected it once — picks it up next.
+    """
+    settings = _boot()
+
+    from ..github.rescue import run_rescue
+
+    with _store(settings) as store:
+        rescued = run_rescue(settings, store)
+    log.info("rescue done: %d article(s) back in the pipeline", rescued)
+
+
 @app.command("close-delivered")
 def close_delivered() -> None:
     """Close ready articles that every enabled channel has delivered.
@@ -185,7 +225,7 @@ def close_delivered() -> None:
     config = _config()
 
     with _store(settings) as store:
-        closed = store.close_delivered(config.required_channels)
+        closed = store.close_delivered(config.ready_channels)
     log.info("close done: %d article(s) published", len(closed))
 
 

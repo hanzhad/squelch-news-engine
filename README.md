@@ -18,9 +18,10 @@ article stands.
 
 ```
 status:1-raw ─classify─▶ status:2-relevant ─summarize─▶ status:3-ready ─close─▶ status:4-published
-     │                                                        │                        │
+     │                          ▲                             │                        │
      └─classify─▶ status:rejected                     sent:site  sent:rss  sent:discord └── closed
-                  (closed, not planned)                    (delivery, one label each)
+                  (closed; enough 👍 on the issue          (delivery, one label each)
+                   and rescue votes it back in)
 ```
 
 Judging and writing are separate stages because they want different things. The classifier runs
@@ -82,11 +83,14 @@ Each pipeline is its own workflow in `.github/workflows/`, triggered by cron and
 | Publish | `publish.yml` | Sends ready articles Discord has not seen to the webhook and marks `sent:discord` | `5,25,45 * * * *` |
 | Close | `close.yml` | Closes ready articles that every enabled channel has delivered | `15,35,55 * * * *` |
 | Digest | `digest.yml` | Builds a weekly roundup with trends out of what reached the feed | `0 9 * * 1` |
+| Publish rejected | `publish-rejected.yml` | Posts recent rejections, with their reasons, to the rejected channel and marks `sent:discord-rejected` | `18 * * * *` |
+| Rescue | `rescue.yml` | Reopens rejected issues with enough 👍 reactions as `status:2-relevant` | `48 * * * *` |
 | Labels | `labels.yml` | Reconciles the label set with the config | on push to `config/**` |
 | Sources | `sources.yml` | Asks every enabled source for a couple of articles and goes red on any that has none | `17 6 * * 1`, and on PRs touching `sources.yaml` |
 
-Every stage owns its own five-minute slot, so no two ever fire on the same minute and queue
-behind each other on the runner. The offsets also stagger them in order, so each finds what the
+Every stage on the hot path owns its own five-minute slot, so no two ever fire on the same
+minute and queue behind each other on the runner. The two community stages run hourly and sit
+off that grid — all twelve slots are taken, and neither is in a race with anything. The offsets also stagger them in order, so each finds what the
 one before it just produced. (GitHub runs cron on a best-effort basis and delays it under load,
 so treat the minutes as intent rather than a guarantee — every stage is written to pick up
 whatever the last one left behind.)
@@ -134,6 +138,13 @@ usual one is spent. Blank — which is what the scheduled run passes — leaves
      Integrations → Webhooks*);
    - `DISCORD_DIGEST_WEBHOOK_URL` — optional. A webhook for a channel of the weekly
      roundup's own; unset means it lands in the feed channel with everything else.
+   - `DISCORD_REJECTED_WEBHOOK_URL` — optional. A webhook for the channel that shows what
+     the classifier rejected (see below). Deliberately no fallback: rejects never land in
+     the feed channel. Unset, disable the `discord-rejected` channel in
+     `config/delivery.yaml` or the `publish-rejected` runs go red.
+   - `DISCORD_SKILLS_WEBHOOK_URL` — optional. A webhook for the skills rubric — articles
+     routed by label to their own channel (see below). No fallback either; unset, disable
+     the `discord-skills` channel in `config/delivery.yaml` or `publish` runs go red.
 
    `GITHUB_TOKEN` and `GITHUB_REPOSITORY` are supplied by Actions itself; do not create them.
 
@@ -233,6 +244,81 @@ Raise `lead` if too much of the channel is shouting. Set `standard: 0` to switch
 tier off and give everything equal weight. If the classifier ever drifts and starts handing out
 sevens to everything, the tiers stop meaning anything — the distribution above is worth a
 glance now and then.
+
+### Routing a rubric to its own channel
+
+By default every enabled channel gets every article. A channel can instead declare, by label,
+what it wants:
+
+```yaml
+  - id: discord
+    skip: ["topic:claude-skills", "source:claude-skills"]   # everything except these
+  - id: discord-skills
+    only: ["topic:claude-skills", "source:claude-skills"]   # nothing but these
+```
+
+This is sectioning, not filtering — every article still goes out, just to the channel whose
+readers asked for it. The closing pass counts, per article, exactly the channels it was routed
+to, so a channel that skips an article never holds it open waiting for a delivery that will
+never come. Both the topic and the source label are listed on purpose: the source is set
+deterministically at scrape time, the topic is the classifier's tag — either is enough to
+reroute, so an article the LLM forgot to tag still lands in the right place. Each Discord
+channel posts through its own webhook (`DISCORD_SKILLS_WEBHOOK_URL` for the one above), and an
+enabled channel with no webhook fails the run rather than borrowing the feed's — routing exists
+precisely so posts do not end up in the wrong place. The site and the RSS feed stay unrouted:
+they are the archive, and the archive holds everything.
+
+### Hunting skill repositories: the `github` source
+
+Skill collections for coding agents are announced nowhere and hyped everywhere — TikTok
+included — and the only reliable signal is the repository itself appearing and gathering stars.
+The `github` source type turns a GitHub search into articles:
+
+```yaml
+  - id: claude-skills
+    type: github
+    url: https://github.com/search?q=claude+skills+in%3Aname%2Cdescription&type=repositories
+    max_items: 5
+```
+
+The URL is the human-clickable search page; the scraper runs its `q=` against the API, bounded
+to repositories created within `max_age_days` and sorted by stars — so what surfaces each run
+is "the new repositories people actually flocked to". The article body is what the repository
+says about itself, hard facts first: stars, forks, dates, file counts, how many `SKILL.md`
+files and shell scripts it contains — then the README and excerpts of the skills themselves,
+which are natural-language descriptions by design. That is exactly the shape the classifier
+and summariser already consume, so no agent and no extra Gemini budget is involved, and
+nothing from the repository is ever executed: this pipeline reads, it does not audit. Tune the
+search by editing the URL; the empty-shell repos are for `focus` to filter, as always.
+
+### The rejected channel, and voting an article back
+
+The classifier is cheap and sometimes wrong, and its mistakes are only correctable if someone
+sees them. The `discord-rejected` channel in `delivery.yaml` posts every fresh rejection —
+headline, source, the classifier's reason — to a channel of its own in the same server, sized
+like a brief and coloured grey: a window onto the cutting-room floor, not a second feed.
+
+```yaml
+  - id: discord-rejected
+    enabled: true
+    consumes: rejected   # reads status:rejected, so it never gates closing
+```
+
+`consumes: rejected` is what keeps this channel out of the count that closes an article —
+rejected issues are closed already, and ordinary articles never carry its `sent:` label. The
+channel shows a rolling window (`REJECTED_WINDOW_DAYS`, three days by default), so switching it
+on shows what was thrown away lately rather than replaying every rejection ever made. It needs
+its own webhook in `DISCORD_REJECTED_WEBHOOK_URL`, and refuses to fall back to the feed's.
+
+Each post ends with the appeal: react 👍 on the linked issue. The `rescue` pass counts those
+reactions — they ride along on the issue listing, so this costs no extra API requests — and
+reopens any rejected issue with enough of them (`RESCUE_MIN_REACTIONS`, one by default) as
+`status:2-relevant`. Relevant rather than raw on purpose: re-running the same classifier on the
+same text would just reject it again, and a community vote is the same human override as
+flipping the label by hand — it goes straight to the summariser, keeps the topic tags the
+classifier chose, and the original rejection reason stays in the metadata as `rejected_reason`.
+Votes count for `RESCUE_WINDOW_DAYS` (fourteen by default); after that the article would need a
+label flipped by hand, which anyone with write access can still do.
 
 ### Adding an RSS source
 
@@ -338,6 +424,8 @@ CLI commands (the console script from `pyproject.toml` is `squelch`):
 | `squelch classify` | judge raw issues on the cheap model |
 | `squelch summarize` | write up the ones that survived |
 | `squelch publish` | send ready articles to Discord |
+| `squelch publish-rejected` | post recent rejections, with reasons, to the rejected channel |
+| `squelch rescue` | reopen rejected articles the community voted back with 👍 |
 | `squelch close-delivered` | close what every enabled channel has delivered |
 | `squelch digest` | build the weekly digest |
 | `squelch build-site` | render the static archive and the feed |

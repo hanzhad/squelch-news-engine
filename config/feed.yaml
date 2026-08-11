@@ -18,13 +18,18 @@ focus: |
   Let through: model and tool releases with concrete capabilities or pricing,
   technical write-ups with real detail, security incidents and vulnerabilities,
   infrastructure and outage post-mortems, funding or policy news that visibly
-  changes what practitioners can build, and honest negative results.
+  changes what practitioners can build, and honest negative results. Also new
+  repositories of skills, plugins or extensions for coding agents — but only
+  when the listed contents show real, inspectable substance; tag these
+  claude-skills.
 
   Filter out: speculation about the future with no new facts, "X will change
   everything" opinion pieces, listicles and prompt-tip roundups, course and
   newsletter promotion, repackaged press releases with nothing added, personal
-  branding threads, and anything whose whole content is an unnamed source
-  claiming a model is coming.
+  branding threads, anything whose whole content is an unnamed source claiming
+  a model is coming, and skill repositories that are empty shells — a README
+  of emoji and promises, forked collections of other people's skills, or
+  nothing but install instructions.
 
 # The LLM may only tag from this list, which keeps the label set finite.
 topics:
@@ -37,6 +42,9 @@ topics:
   - policy
   - open-source
   - hardware
+  # Skill/plugin collections for coding agents; routes articles to their own
+  # Discord channel — see `only`/`skip` in delivery.yaml.
+  - claude-skills
 
 # How far back an article may be dated and still be treated as news. Listing
 # pages keep months of posts on them, so without this every newly added source

@@ -23,7 +23,10 @@ DELIVERY_PATH = CONFIG_DIR / "delivery.yaml"
 
 class Source(BaseModel):
     id: str
-    type: Literal["rss", "html", "web"] = "rss"
+    type: Literal["rss", "html", "web", "github"] = "rss"
+    # For type: github this is the human-clickable search page; the scraper
+    # runs its `q=` parameter against the API, so the config stays one URL per
+    # source and the query is editable without touching code.
     url: str
     enabled: bool = True
     # Follow the link and extract the full article text instead of trusting the
@@ -69,7 +72,36 @@ class Channel(BaseModel):
 
     id: str
     enabled: bool = True
+    # What this channel consumes. Almost every channel delivers ready articles
+    # and takes part in the count that closes an issue; a ``rejected`` channel
+    # instead shows what the classifier threw away, and never gates closing —
+    # rejected issues are closed already.
+    consumes: Literal["ready", "rejected"] = "ready"
+    # Routing, by the labels on the issue. ``only`` delivers just the articles
+    # carrying at least one of the listed labels; ``skip`` delivers everything
+    # except those. This is sectioning, not filtering: every article must still
+    # match some enabled channel, and the closing pass only counts the channels
+    # an article was actually routed to.
+    only: list[str] = Field(default_factory=list)
+    skip: list[str] = Field(default_factory=list)
     emphasis: Emphasis = Field(default_factory=Emphasis)
+
+    @model_validator(mode="after")
+    def _one_selector(self) -> Channel:
+        if self.only and self.skip:
+            raise ValueError(
+                f"channel {self.id} sets both `only` and `skip`; pick one — "
+                "their combined meaning would be ambiguous"
+            )
+        return self
+
+    def wants(self, labels: set[str]) -> bool:
+        """Whether an article carrying ``labels`` belongs in this channel."""
+        if self.only:
+            return bool(set(self.only) & labels)
+        if self.skip:
+            return not (set(self.skip) & labels)
+        return True
 
 
 class Config(BaseModel):
@@ -95,9 +127,14 @@ class Config(BaseModel):
         return [s for s in self.sources if s.enabled]
 
     @property
+    def ready_channels(self) -> list[Channel]:
+        """The enabled channels that deliver ready articles and gate closing."""
+        return [c for c in self.channels if c.enabled and c.consumes == "ready"]
+
+    @property
     def required_channels(self) -> list[str]:
         """The channels an article must reach before it counts as published."""
-        return [c.id for c in self.channels if c.enabled]
+        return [c.id for c in self.ready_channels]
 
     def channel(self, channel_id: str) -> Channel:
         """One channel's settings, or the defaults if it is not configured."""

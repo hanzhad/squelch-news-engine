@@ -1,0 +1,39 @@
+name: rescue
+
+on:
+  schedule:
+    # Off the five-minute grid like publish-rejected, and two minutes ahead of
+    # summarize (:50) on purpose: an article voted back gets its write-up on
+    # the very next tick instead of half an hour later.
+    - cron: "48 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: rescue
+  cancel-in-progress: false
+
+jobs:
+  rescue:
+    runs-on: ubuntu-latest
+    # Nothing here talks to a model or a webhook — reaction counts ride along
+    # on the issue listing — so a slow run just means GitHub is slow.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Rescue voted articles
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: squelch rescue
