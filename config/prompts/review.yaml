@@ -38,9 +38,14 @@ template: |
   - Then judge the collection: does what is inside match what the repository
     says about itself? Name the gap when the README promises more skills, more
     depth or more automation than the files carry.
-  - Say who would get real value out of this today and who would not. A narrow
-    tool that does one real job well is worth more than a broad collection of
-    prompts, and should be described that way.
+  - Say who would use this and for what — a named kind of person and the task
+    they would open it for. A narrow tool that does one real job well is worth
+    more than a broad collection of prompts, and should be described that way.
+  - Never write that someone will "find immediate value", "gain concrete
+    value", or that something is "production-ready" or "comprehensive". Those
+    are the sentences a landing page writes, and they say nothing: replace them
+    with the job the reader would actually do with this. If the honest answer
+    is that nobody would bother, write that instead.
   - Call hype hype. A curated list of links to other people's skills, a fork
     with a new banner, install instructions with nothing behind them, or a
     README whose main content is a link to a paid community — those are not

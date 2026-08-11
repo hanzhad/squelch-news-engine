@@ -147,8 +147,9 @@ class SkillsReview(BaseModel):
     )
     usefulness: str = Field(
         description=(
-            "One or two sentences on who would get real value out of this today, "
-            "or why nobody would."
+            "One or two sentences naming who would open this and for what task, "
+            "or saying plainly that nobody would. No 'immediate value', no "
+            "'production-ready' — the job, not the pitch."
         )
     )
     skills: list[SkillNote] = Field(

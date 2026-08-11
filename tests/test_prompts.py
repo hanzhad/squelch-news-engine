@@ -57,6 +57,7 @@ def test_the_per_article_stages_stay_off_the_digest_s_model() -> None:
 
     assert models.classify != models.digest
     assert models.summarize != models.digest
+    assert models.review != models.digest
 
 
 def test_classify_prompt_quotes_the_policy_verbatim(config: Config, issue: IssueRecord) -> None:
