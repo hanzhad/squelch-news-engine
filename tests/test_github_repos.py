@@ -153,3 +153,59 @@ def test_a_repo_without_a_link_is_skipped(source, config: Config) -> None:  # ty
     articles = github_repos.scrape(source, config, FakeClient(routes))
 
     assert [a.url for a in articles] == ["https://github.com/acme/claude-skills"]
+
+
+# -- titles ------------------------------------------------------------------
+#
+# A repository description is not written to be a headline, and this title
+# also names the Discord forum post, which cuts at 100 characters.
+
+
+def headline(description: str, full_name: str = "acme/claude-skills") -> str:
+    return github_repos._headline(full_name, description)
+
+
+def test_a_title_never_outgrows_what_a_forum_post_can_be_called() -> None:
+    assert len(headline("Ship faster " * 40)) <= github_repos.TITLE_LIMIT
+
+
+def test_only_the_first_sentence_of_a_description_is_the_headline() -> None:
+    assert (
+        headline("Files your tax return from the terminal. Both regimes, AY 2026-27.")
+        == "acme/claude-skills: Files your tax return from the terminal"
+    )
+
+
+def test_the_same_description_repeated_in_another_language_is_cut_at_the_bar() -> None:
+    # Half of these repositories describe themselves twice, either side of a
+    # bar; the second half is the same claim again, not more of it.
+    assert (
+        headline("Skills for short-drama production | AI 短剧制作的 skill 集合")
+        == "acme/claude-skills: Skills for short-drama production"
+    )
+
+
+def test_a_full_stop_inside_a_word_does_not_end_the_sentence() -> None:
+    assert headline("Growth hacking skills by enso.bot for v1.2").endswith("enso.bot for v1.2")
+
+
+def test_a_first_sentence_past_the_limit_is_cut_at_a_word_and_says_so() -> None:
+    title = headline(
+        "Turn a photo of your handwriting into a real font (TTF/WOFF/WOFF2), "
+        "free and open source, no uploads anywhere"
+    )
+
+    assert len(title) <= github_repos.TITLE_LIMIT
+    assert title.endswith("…")
+    assert " ".join(title.split()) == title
+
+
+def test_a_repository_with_no_description_is_titled_by_its_name_alone() -> None:
+    assert headline("") == "acme/claude-skills"
+
+
+def test_a_name_that_leaves_no_room_goes_out_on_its_own() -> None:
+    # A three-word fragment of a description reads worse than nothing.
+    long_name = "a" * 80 + "/skills"
+
+    assert headline("A curated pile of skills for agents", long_name) == long_name

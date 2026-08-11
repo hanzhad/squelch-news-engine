@@ -24,13 +24,14 @@ from ..core.config import Config, Emphasis
 from ..core.log import get_logger
 from ..core.models import Digest, DigestEntry, Status
 from ..core.settings import Settings
+from ..core.text import trim
 from ..core.throttle import paced
 from ..github.issues import IssueRecord, IssueStore
 
 log = get_logger(__name__)
 
 # Discord's documented limits. Every one of them is a 400 when exceeded, which
-# is why nothing reaches the API without passing through _trim first.
+# is why nothing reaches the API without passing through trim first.
 TITLE_LIMIT = 256
 DESCRIPTION_LIMIT = 4096
 FOOTER_LIMIT = 2048
@@ -100,19 +101,6 @@ class DiscordError(RuntimeError):
 
 
 # -- text fitting -----------------------------------------------------------
-
-
-def _trim(text: str, limit: int) -> str:
-    """Cut ``text`` to at most ``limit`` characters, preferring a word boundary."""
-    clean = (text or "").strip()
-    if len(clean) <= limit:
-        return clean
-    cut = clean[: max(0, limit - 1)]
-    space = cut.rfind(" ")
-    # Only honour the word boundary if it does not throw away most of the text.
-    if space > limit * 0.6:
-        cut = cut[:space]
-    return cut.rstrip() + "…"
 
 
 def _embed_size(embed: dict[str, Any]) -> int:
@@ -325,13 +313,13 @@ def _issue_embed(issue: IssueRecord, emphasis: Emphasis | None = None) -> dict[s
     score = issue.meta.get("score")
 
     embed: dict[str, Any] = {
-        "title": _trim(issue.title, TITLE_LIMIT),
+        "title": trim(issue.title, TITLE_LIMIT),
         "color": WEIGHT_COLORS[weight],
     }
     if issue.url:
         embed["url"] = issue.url
     if issue.source:
-        embed["author"] = {"name": _trim(issue.source, AUTHOR_LIMIT)}
+        embed["author"] = {"name": trim(issue.source, AUTHOR_LIMIT)}
 
     # The picture the publisher chose for link previews. Discord fetches it
     # itself, so a dead link costs a blank space, not a failed message.
@@ -343,7 +331,7 @@ def _issue_embed(issue: IssueRecord, emphasis: Emphasis | None = None) -> dict[s
     footer = ["squelch"]
     if isinstance(score, int | float):
         footer.append(f"score {int(score)}/10")
-    embed["footer"] = {"text": _trim(" · ".join(footer), FOOTER_LIMIT)}
+    embed["footer"] = {"text": trim(" · ".join(footer), FOOTER_LIMIT)}
 
     # One line rather than two side-by-side fields: topics and the link to the
     # discussion are both navigation, and splitting them into columns made the
@@ -361,11 +349,11 @@ def _issue_embed(issue: IssueRecord, emphasis: Emphasis | None = None) -> dict[s
         # carries a blank name row above it, which is most of what a brief was
         # meant to save.
         if meta_line:
-            embed["description"] = _trim(meta_line, DESCRIPTION_LIMIT)
+            embed["description"] = trim(meta_line, DESCRIPTION_LIMIT)
     else:
-        embed["description"] = _trim(body, min(SUMMARY_TARGET, DESCRIPTION_LIMIT))
+        embed["description"] = trim(body, min(SUMMARY_TARGET, DESCRIPTION_LIMIT))
         if meta_line:
-            embed["fields"] = [{"name": "​", "value": _trim(meta_line, FIELD_VALUE_LIMIT)}]
+            embed["fields"] = [{"name": "​", "value": trim(meta_line, FIELD_VALUE_LIMIT)}]
 
     stamp = _timestamp(issue.meta.get("published_at")) or _timestamp(issue.created_at)
     if stamp:
@@ -382,13 +370,13 @@ def _rejected_embed(issue: IssueRecord) -> dict[str, Any]:
     issue and the rescue pass sends the article back for its write-up.
     """
     embed: dict[str, Any] = {
-        "title": _trim(issue.title, TITLE_LIMIT),
+        "title": trim(issue.title, TITLE_LIMIT),
         "color": REJECTED_COLOR,
     }
     if issue.url:
         embed["url"] = issue.url
     if issue.source:
-        embed["author"] = {"name": _trim(issue.source, AUTHOR_LIMIT)}
+        embed["author"] = {"name": trim(issue.source, AUTHOR_LIMIT)}
 
     lines = []
     reason = str(issue.meta.get("verdict_reason") or "").strip()
@@ -400,7 +388,7 @@ def _rejected_embed(issue: IssueRecord) -> dict[str, Any]:
             "and it goes back into the pipeline."
         )
     if lines:
-        embed["description"] = _trim("\n".join(lines), DESCRIPTION_LIMIT)
+        embed["description"] = trim("\n".join(lines), DESCRIPTION_LIMIT)
 
     embed["footer"] = {"text": "squelch · rejected"}
     stamp = _timestamp(issue.meta.get("published_at")) or _timestamp(issue.created_at)
@@ -424,7 +412,7 @@ def _payload(
         # Forum channels only, where it is not optional: the post is a thread,
         # and a thread cannot exist unnamed. Sent to a text channel the same
         # field is a 400, which is why nothing here guesses.
-        payload["thread_name"] = _trim(thread_name, THREAD_NAME_LIMIT)
+        payload["thread_name"] = trim(thread_name, THREAD_NAME_LIMIT)
     if applied_tags:
         payload["applied_tags"] = applied_tags[:MAX_APPLIED_TAGS]
     return payload
@@ -433,9 +421,9 @@ def _payload(
 def _highlight_field(entry: DigestEntry) -> dict[str, Any]:
     link = f"\n[Read]({entry.url})" if entry.url else ""
     return {
-        "name": _trim(entry.title, FIELD_NAME_LIMIT),
+        "name": trim(entry.title, FIELD_NAME_LIMIT),
         # Trim the prose, not the link, so the link never comes out half-written.
-        "value": _trim(entry.takeaway, FIELD_VALUE_LIMIT - len(link)) + link,
+        "value": trim(entry.takeaway, FIELD_VALUE_LIMIT - len(link)) + link,
         "inline": False,
     }
 
@@ -443,8 +431,8 @@ def _highlight_field(entry: DigestEntry) -> dict[str, Any]:
 def _digest_embeds(digest: Digest) -> list[dict[str, Any]]:
     trends = "\n".join(f"• {trend.strip()}" for trend in digest.trends if trend.strip())
     lead: dict[str, Any] = {
-        "title": _trim(digest.headline, TITLE_LIMIT),
-        "description": _trim(trends, DESCRIPTION_LIMIT),
+        "title": trim(digest.headline, TITLE_LIMIT),
+        "description": trim(trends, DESCRIPTION_LIMIT),
         "color": ACCENT_COLOR,
         "footer": {"text": "squelch · weekly digest"},
     }
