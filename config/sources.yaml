@@ -60,9 +60,13 @@ sources:
     url: https://www.microsoft.com/en-us/research/feed/
     max_items: 4
 
+  # Was /ai/feed/ until that page stopped being an archive: WordPress then
+  # serves the *comments* feed for it, which parses fine and is permanently
+  # empty. The AI writing moved to the Foundry blog. Id kept as it is, so the
+  # existing source:msdevblogs issues stay one source.
   - id: msdevblogs
     type: rss
-    url: https://devblogs.microsoft.com/ai/feed/
+    url: https://devblogs.microsoft.com/foundry/feed/
     max_items: 4
 
   - id: mistral

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from ..core.config import Config
+from ..core.config import Config, Source
 from ..core.log import get_logger
 from ..core.models import RawArticle, Status
 from ..core.settings import Settings
@@ -25,6 +26,15 @@ SCRAPERS = {
 }
 
 
+def scraper_for(source: Source) -> Any:
+    """The callable that reads this source, or None if nothing can.
+
+    A hand-written scraper for this id wins over the generic one for its type;
+    see scrapers/sites/ for when that is worth doing.
+    """
+    return sites.get(source.id) or SCRAPERS.get(source.type)
+
+
 def collect(config: Config, settings: Settings, only_type: str | None = None) -> list[RawArticle]:
     """Run every enabled source and return what they produced."""
     collected: list[RawArticle] = []
@@ -32,9 +42,7 @@ def collect(config: Config, settings: Settings, only_type: str | None = None) ->
         for source in config.enabled_sources:
             if only_type and source.type != only_type:
                 continue
-            # A hand-written scraper for this id wins over the generic one for
-            # its type; see scrapers/sites/ for when that is worth doing.
-            scraper = sites.get(source.id) or SCRAPERS.get(source.type)
+            scraper = scraper_for(source)
             if scraper is None:
                 log.error("source %s has unknown type %r", source.id, source.type)
                 continue
