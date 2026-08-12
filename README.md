@@ -131,9 +131,24 @@ catching up over a backlog after an outage.
 ### The digests, and what the feed channel is for now
 
 Two roundups share one Discord channel: a daily every morning over the day just gone, and on
-Mondays a weekly look back once the week is actually over. They are one code path and two
-prompt files — the daily reports, the weekly synthesises — because a reader who gets both on a
-Monday must not feel they got the same message twice. Which one a message is, is in its footer.
+Mondays a weekly look back once the week is actually over. They are one code path and two prompt
+files, because a reader who gets both on a Monday must not feel they got the same message twice.
+
+Each one is three parts:
+
+1. **The stretch it covers**, as the title — `Daily digest · 11 August 2026`, `Weekly digest ·
+   5–11 August 2026`. You already know it is a roundup; what you need first is which one.
+2. **The body**: connected prose over everything selected, saying what shipped and what it adds
+   up to. This is the part worth reading — the links are already in the archive, and a paragraph
+   that only restates their titles has said nothing the list did not. Both prompts spend most of
+   their rules forbidding exactly that.
+3. **The articles**, as bare titles and links. No caption per item: what a release means is said
+   once, in the body.
+
+The weekly additionally carries **trends** — threads visible across more than one day, which is
+the one thing a single day cannot have and therefore what keeps the two from reading alike. If a
+weekly ever reads like a longer daily, the fault is in `prompts/digest-weekly.md`, not in the
+code: the periods share one schema and one renderer on purpose.
 
 **A roundup is an issue too.** The build stage writes it into one labelled `digest:daily` or
 `digest:weekly` and stops there; `publish-digest.yml` posts it, records the message id on it and
