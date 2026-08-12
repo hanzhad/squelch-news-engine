@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from squelch.core.config import Config, load_config
+from squelch.core.config import Config, DigestPolicy, load_config
+from squelch.core.models import Period
 from squelch.github.issues import IssueRecord
 from squelch.llm import prompts
 
@@ -35,7 +36,9 @@ def issue() -> IssueRecord:
     )
 
 
-@pytest.mark.parametrize("stage", ["classify", "summarize", "review", "digest"])
+@pytest.mark.parametrize(
+    "stage", ["classify", "summarize", "review", "digest-daily", "digest-weekly"]
+)
 def test_every_shipped_prompt_file_is_valid(stage: str) -> None:
     loaded = prompts.load_prompt(stage)
 
@@ -138,12 +141,59 @@ def test_unknown_source_and_url_degrade_to_a_word(config: Config) -> None:
     assert "URL: unknown" in text
 
 
-def test_digest_prompt_lists_every_article(config: Config, issue: IssueRecord) -> None:
-    text = prompts.digest_prompt(config, days=7, issues=[issue, issue])
+@pytest.mark.parametrize("period", list(Period))
+def test_digest_prompt_lists_every_article(
+    config: Config, issue: IssueRecord, period: Period
+) -> None:
+    text = prompts.digest_prompt(config, period, period.days, [issue, issue])
 
     assert text.count("- Title: Something shipped") == 2
     assert "These 2 articles" in text
-    assert "last 7 days" in text
+
+
+def test_the_digest_reads_the_write_up_rather_than_the_article(config: Config) -> None:
+    """A roundup built from raw text could say things the channel and the
+    archive never said. It reads what the feed published, and falls back to the
+    article only for an issue opened by hand, which has no write-up."""
+    written = IssueRecord(
+        number=1, title="t", meta={}, original="The raw article.", summary="The write-up."
+    )
+
+    text = prompts.digest_prompt(config, Period.DAILY, 1, [written])
+
+    assert "The write-up." in text
+    assert "The raw article." not in text
+
+
+def test_a_summary_that_fits_is_never_cut(config: Config) -> None:
+    # The old 400-character slice landed inside a normal two-to-four sentence
+    # write-up, and cut it mid-word with nothing to show it had happened.
+    summary = "Word " * 100  # 500 characters
+    issue = IssueRecord(number=1, title="t", meta={}, summary=summary)
+
+    assert summary.strip() in prompts.digest_prompt(config, Period.DAILY, 1, [issue])
+
+
+def test_an_over_long_gist_is_cut_at_a_word_boundary(config: Config) -> None:
+    # The fallback path: no write-up, so the raw body stands in and it can run
+    # to max_body_chars. Cut visibly, like every other limit in the codebase.
+    tight = Config(focus="f", digest=DigestPolicy(summary_chars=100))
+    issue = IssueRecord(number=1, title="t", meta={}, original="alpha bravo " * 50)
+
+    text = prompts.digest_prompt(tight, Period.DAILY, 1, [issue])
+
+    assert "…" in text
+    assert "  Summary: alpha bravo" in text
+
+
+def test_the_weekly_prompt_names_its_window_and_the_daily_one_does_not(
+    config: Config, issue: IssueRecord
+) -> None:
+    """The daily takes a --days override for catching up after an outage, so a
+    prompt that said "yesterday" would be a lie the model cannot catch. The
+    weekly has no such override and reads better for naming the week."""
+    assert "last 7 days" in prompts.digest_prompt(config, Period.WEEKLY, 7, [issue])
+    assert "days" not in prompts.digest_prompt(config, Period.DAILY, 3, [issue]).lower()
 
 
 def test_a_literal_brace_in_the_policy_survives(issue: IssueRecord) -> None:
@@ -164,7 +214,8 @@ def test_the_real_config_and_prompts_compose(issue: IssueRecord) -> None:
         prompts.classify_prompt(config, issue, 1500),
         prompts.summarize_prompt(config, issue),
         prompts.review_prompt(config, issue),
-        prompts.digest_prompt(config, 7, [issue]),
+        prompts.digest_prompt(config, Period.DAILY, 1, [issue]),
+        prompts.digest_prompt(config, Period.WEEKLY, 7, [issue]),
     ):
         assert "EDITORIAL POLICY" in text
         # Every placeholder the shipped templates declare must have been filled.

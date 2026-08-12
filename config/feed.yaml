@@ -56,3 +56,25 @@ max_age_days: 21
 # Article text handed to the summariser is truncated to this many characters.
 # The classifier reads far less — see classify_body_chars in core/settings.py.
 max_body_chars: 8000
+
+# How much of the window a roundup carries. Both roundups read the same knobs;
+# what differs between the daily and the weekly is the window, not the policy.
+#
+# The two settings only mean anything together. `max_articles` is the size the
+# roundup aims for, `min_score` is what an article must be worth to get in past
+# that size — so a late-ranked article that scored well still makes it, and
+# nothing is cut for being number sixty-one alone.
+#
+# `min_score: 0` keeps everything, which makes the cap inert. That is the
+# shipped setting on purpose: at roughly fifteen articles a day a week does not
+# yet need rationing, and a threshold nobody chose deliberately is the silent
+# filter this pipeline exists to avoid. Raise it — 3 or 4 — the day a week
+# genuinely stops fitting, and the log will say what it cost.
+digest:
+  max_articles: 60
+  min_score: 0
+  # Each article reaches the model as its published write-up, cut to this at a
+  # word boundary. Stage two writes two to four sentences, so this leaves a
+  # normal summary whole; it is also what bounds an issue opened by hand, which
+  # has no summary and falls back to max_body_chars of raw text.
+  summary_chars: 1000

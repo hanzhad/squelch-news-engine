@@ -1,0 +1,75 @@
+name: digest-daily
+
+# The morning roundup, into the same channel as the weekly one. Its own
+# workflow rather than a second cron on digest.yml: two schedules in one file
+# would have to work out which of them fired before it could pick a period, and
+# a daily that can be re-run by hand without also re-running the week is worth
+# the duplicated forty lines.
+
+on:
+  schedule:
+    # 06:00 UTC daily, over the day that just ended. Well clear of the weekly's
+    # Monday slot, so a reader never gets both in the same minute.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      model:
+        description: >-
+          Gemini model to write this digest with. Blank uses config/models.yaml.
+          Free-tier quota is counted per model, so a second model is also the
+          way to get a digest out when the usual one is spent.
+        required: false
+        default: ""
+      days:
+        description: >-
+          Look back this many days instead of one. For catching up after an
+          outage: the daily prompt never names its window, so a wider one is
+          not a lie. Blank means one day.
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: digest-daily
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      # Writes the roundup into an issue and stops there; publish-digest.yml
+      # posts it. Running this twice in a day is safe — the second run finds
+      # today's roundup already waiting and writes nothing.
+      - name: Daily digest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ inputs.model }}
+          # Through the environment rather than interpolated into the command.
+          # A dispatch input is free text, and `${{ }}` inside `run:` is
+          # substituted before the shell sees it — so a value with a semicolon
+          # in it would run as a second command, with both secrets above in
+          # scope.
+          DAYS: ${{ inputs.days }}
+        # A quiet day is a normal outcome here and leaves the run green — with
+        # a daily roundup that is a common one, not an edge case.
+        run: |
+          if [ -n "$DAYS" ]; then
+            squelch digest --period daily --days "$DAYS"
+          else
+            squelch digest --period daily
+          fi

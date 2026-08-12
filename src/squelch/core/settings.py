@@ -20,18 +20,23 @@ class Settings(BaseSettings):
     # new model can be tried from the Actions UI without a commit.
     gemini_model: str = Field(default="", validation_alias="GEMINI_MODEL")
     gemini_classify_model: str = Field(default="", validation_alias="GEMINI_CLASSIFY_MODEL")
+    # The article-by-article feed. That channel is the project's own working
+    # view of the pipeline rather than something to be read start to finish, so
+    # nothing else falls back to it — see discord_digest_webhook_url below.
     discord_webhook_url: str = Field(default="", validation_alias="DISCORD_WEBHOOK_URL")
-    # The weekly roundup reads differently from the firehose, so it can have a
-    # channel of its own. Unset means both go to the same webhook.
+    # The channel both roundups go to, daily and weekly. Required rather than
+    # optional, and deliberately without the fallback to the feed webhook it
+    # used to have: the roundups are the part that is read, and one landing in
+    # the feed channel would be published to nobody.
     discord_digest_webhook_url: str = Field(
         default="", validation_alias="DISCORD_DIGEST_WEBHOOK_URL"
     )
-    # Whether that channel is a forum rather than a text channel. A forum has
-    # no message stream — every post *is* a thread — so the webhook has to name
-    # the thread it is creating, and Discord answers 400 to a message carrying
-    # neither a name nor an existing thread id. A text channel refuses the same
-    # field just as firmly, so it cannot simply always be sent. Getting this
-    # wrong costs a red run with Discord's own complaint in it, not silence.
+    # Whether the digest channel is a forum rather than a text channel. A forum
+    # has no message stream — every post *is* a thread — so the webhook has to
+    # name the thread it is creating, and Discord answers 400 to a message
+    # carrying neither a name nor an existing thread id. A text channel refuses
+    # the same field just as firmly, so it cannot simply always be sent. Getting
+    # this wrong costs a red run with Discord's own complaint in it, not silence.
     digest_forum: bool = Field(default=False, validation_alias="DIGEST_FORUM")
     # The channel that shows what the classifier threw away. Deliberately not
     # falling back to the feed webhook: rejects in the main feed would defeat
@@ -83,11 +88,6 @@ class Settings(BaseSettings):
     request_timeout: float = 30.0
     # Bounded by GitHub's 65536-character issue body, not by disk.
     seen_max_entries: int = 3500
-
-    @property
-    def digest_webhook_url(self) -> str:
-        """Where the weekly roundup goes — its own channel, or the feed's."""
-        return self.discord_digest_webhook_url or self.discord_webhook_url
 
     @property
     def repo_owner(self) -> str:

@@ -173,8 +173,37 @@ class SkillsReview(BaseModel):
     )
 
 
+class Period(StrEnum):
+    """How far back one roundup looks.
+
+    Two digests share one channel: the daily is what happened since yesterday,
+    read the morning after, and the weekly is the look back that only makes
+    sense once the week is over. They are different pieces of writing rather
+    than the same one over a longer window — a day rarely carries a trend, a
+    week is mostly trends — so each has a prompt file of its own and this is
+    what picks between them.
+    """
+
+    DAILY = "daily"
+    WEEKLY = "weekly"
+
+    @property
+    def days(self) -> int:
+        return 1 if self is Period.DAILY else 7
+
+    @property
+    def stage(self) -> str:
+        """The prompt file this roundup is written from."""
+        return f"digest-{self.value}"
+
+    @property
+    def label(self) -> str:
+        """What the roundup calls itself in the channel and in the logs."""
+        return f"{self.value} digest"
+
+
 class DigestEntry(BaseModel):
-    """One line of the weekly digest."""
+    """One line of a digest."""
 
     title: str
     url: str
@@ -182,8 +211,17 @@ class DigestEntry(BaseModel):
 
 
 class Digest(BaseModel):
-    """The weekly roundup produced from published articles."""
+    """A roundup produced from published articles. Same shape either period.
 
-    headline: str = Field(description="One sentence naming the theme of the week")
-    trends: list[str] = Field(description="2-5 trends observed across the week")
+    The descriptions travel with the request as the response schema, so they
+    say nothing about a week: the rules that differ between the daily and the
+    weekly are in the prompt files, where they can be rewritten without a
+    deploy. Trends are allowed to come back empty on purpose — a quiet day with
+    two invented themes is worse than a quiet day that says so.
+    """
+
+    headline: str = Field(description="One sentence naming what this stretch was actually about")
+    trends: list[str] = Field(
+        description="Threads visible across more than one article. None, if there are none."
+    )
     highlights: list[DigestEntry] = Field(description="Up to 8 most notable articles")

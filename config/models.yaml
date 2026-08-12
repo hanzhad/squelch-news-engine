@@ -46,7 +46,12 @@ summarize: gemini-3.5-flash-lite
 # of a review here is the prompt, not the parameter count.
 review: gemini-3.5-flash-lite
 
-# Once a week, and the only stage doing real synthesis: turning eight articles
-# into two trends is harder than restating one. One request against a budget of
-# twenty is exactly where the stronger model is affordable.
+# Both roundups, daily and weekly, and the only stage doing real synthesis:
+# turning eight articles into two trends is harder than restating one. Since the
+# per-article feed became our own working channel this is also the part anyone
+# actually reads, which settles the quality question.
+#
+# The capacity question settles just as easily: one request a day, two on the
+# Monday the weekly joins it, against a budget of twenty. The daily costs a
+# twentieth of the ceiling and leaves the manual-dispatch escape hatch intact.
 digest: gemini-3.6-flash

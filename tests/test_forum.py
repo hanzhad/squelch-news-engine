@@ -9,12 +9,14 @@ from pydantic import ValidationError
 from test_routing import FEED, SKILLS, FakeClient, FakeWebhook, make_issue
 
 from squelch.core.config import Channel, Config
-from squelch.core.models import Digest, Status
+from squelch.core.models import Status
 from squelch.core.settings import Settings
 from squelch.github.issues import IssueStore
 from squelch.publishers import discord
-from squelch.publishers.discord import THREAD_NAME_LIMIT, post_digest, publish_ready
+from squelch.publishers.discord import THREAD_NAME_LIMIT, publish_ready
 
+# The digest's own forum behaviour lives in test_digests.py, with the rest of
+# the queue it now travels through.
 TAGS = {"topic:models": "111", "topic:tooling": "222", "topic:security": "333"}
 
 
@@ -158,30 +160,3 @@ def test_a_text_channel_never_gets_tags_either() -> None:
     publish_ready(make_settings(), forum_config(TAGS), store)
 
     assert "applied_tags" not in sent_to(FEED)[0]
-
-
-# -- the weekly digest -------------------------------------------------------
-
-
-def digest(headline: str = "A week of small models") -> Digest:
-    return Digest(headline=headline, trends=["Trend one."], highlights=[])
-
-
-def test_the_digest_opens_a_post_titled_with_the_week_s_headline() -> None:
-    post_digest(make_settings(digest_forum=True), digest())
-
-    assert sent_to(FEED)[0]["thread_name"] == "A week of small models"
-
-
-def test_the_digest_carries_no_thread_name_in_a_text_channel() -> None:
-    post_digest(make_settings(), digest())
-
-    assert "thread_name" not in sent_to(FEED)[0]
-
-
-def test_a_blank_headline_still_gets_the_post_out() -> None:
-    # A forum post cannot be nameless, and the headline comes from a model. A
-    # dull title beats a 400 that costs the whole week's roundup.
-    post_digest(make_settings(digest_forum=True), digest(headline="   "))
-
-    assert sent_to(FEED)[0]["thread_name"] == discord.DIGEST_THREAD_NAME
