@@ -95,7 +95,10 @@ endpoints with data residency, and a large raise for managed fine-tuning:
           about convenience.
 
 Note what it does not do: name every article, quote a version number, or open
-with "several major announcements".
+with "several major announcements". Note also that "small enough for a laptop"
+carries no number at all — the first live run told to drop a parameter count
+turned "3B parameters" into "3GB" rather than dropping it, so a number is
+either exact or absent.
 
 HOW TO WRITE IT
 
@@ -109,9 +112,12 @@ is the failure here, not the goal.
   "local multimodal execution gained broader engine support". An abstract noun
   as the subject is the fastest way to make this unreadable, and it is the
   habit to watch hardest.
-- Skip version strings, parameter counts and codenames unless the number *is*
-  the news. "A vision model small enough for a laptop" tells a reader more
-  than "LFM2.5-VL-3B".
+- Prefer what a thing does to what it is called: "a vision model small enough
+  for a laptop" beats "LFM2.5-VL-3B". Version strings and codenames earn their
+  place only when the version *is* the news.
+- Never convert, round or approximate a number. Quote it exactly as the article
+  gives it, or leave it out — those are the only two options. "3B parameters"
+  may become "small"; it may never become "3GB".
 - No consultant nouns: capabilities, offerings, solutions, deployment options,
   considerations, developments. No "leverage", "enable", "unlock", "empower",
   "robust", "seamless".
