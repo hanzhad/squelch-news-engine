@@ -61,6 +61,30 @@ class Emphasis(BaseModel):
         return self
 
 
+class DigestPolicy(BaseModel):
+    """How much of the window one roundup is allowed to carry.
+
+    Two knobs that only mean something together. ``max_articles`` is the size
+    the roundup aims for; ``min_score`` is what an article has to be worth to
+    get in *past* that size. So the cap is a budget rather than a verdict — a
+    late-ranked article that scored well still makes it, and nothing is dropped
+    for being article number sixty-one alone.
+
+    Shipped with ``min_score: 0``, which keeps everything and makes the cap
+    inert: at the volume this feed runs at there is nothing to ration yet, and
+    a threshold nobody chose deliberately is exactly the kind of silent filter
+    this pipeline is against. Raise it the day a week genuinely stops fitting.
+    """
+
+    max_articles: int = Field(default=60, ge=1)
+    min_score: int = Field(default=0, ge=0, le=10)
+    # What each article contributes to the prompt: its write-up, cut to this.
+    # Stage two writes two to four sentences, so this is sized to leave a normal
+    # summary whole and to bound the fallback — an issue opened by hand has no
+    # summary, and the raw body behind it runs to max_body_chars.
+    summary_chars: int = Field(default=1000, ge=100)
+
+
 class Channel(BaseModel):
     """One place a ready article is delivered to.
 
@@ -75,8 +99,10 @@ class Channel(BaseModel):
     # What this channel consumes. Almost every channel delivers ready articles
     # and takes part in the count that closes an issue; a ``rejected`` channel
     # instead shows what the classifier threw away, and never gates closing —
-    # rejected issues are closed already.
-    consumes: Literal["ready", "rejected"] = "ready"
+    # rejected issues are closed already. A ``digest`` channel consumes roundups,
+    # which are issues of their own kind: same delivery bookkeeping, a queue no
+    # article is ever in, and so no part in closing one either.
+    consumes: Literal["ready", "rejected", "digest"] = "ready"
     # Routing, by the labels on the issue. ``only`` delivers just the articles
     # carrying at least one of the listed labels; ``skip`` delivers everything
     # except those. This is sectioning, not filtering: every article must still
@@ -178,6 +204,7 @@ class Config(BaseModel):
     # comment in feed.yaml for why a listing page makes this necessary.
     max_age_days: int = Field(default=21, ge=1)
     max_body_chars: int = 8000
+    digest: DigestPolicy = Field(default_factory=DigestPolicy)
     sources: list[Source] = Field(default_factory=list)
     channels: list[Channel] = Field(default_factory=list)
 
@@ -189,6 +216,16 @@ class Config(BaseModel):
     def ready_channels(self) -> list[Channel]:
         """The enabled channels that deliver ready articles and gate closing."""
         return [c for c in self.channels if c.enabled and c.consumes == "ready"]
+
+    @property
+    def digest_channels(self) -> list[Channel]:
+        """The enabled channels that post roundups.
+
+        Never part of ``ready_channels``, so a roundup channel cannot hold an
+        article open waiting for a delivery no article was ever queued for —
+        the same rule the rejected channel lives by.
+        """
+        return [c for c in self.channels if c.enabled and c.consumes == "digest"]
 
     @property
     def required_channels(self) -> list[str]:

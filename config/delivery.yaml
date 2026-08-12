@@ -22,10 +22,20 @@ channels:
   # anything without a link, so "on the page" and "in the feed" genuinely differ.
   - id: rss
     enabled: true
-  # The community chat channel. Skill-collection repositories are routed to
-  # their own channel below, so they are skipped here — by label, which is why
-  # both the topic (the classifier's tag) and the source (set at scrape time)
-  # are listed: either one is enough to reroute an article.
+  # The article-by-article stream — every survivor, as it lands. This is no
+  # longer what the community reads: the channel it posts into is closed, and
+  # the public face of the feed is the digest channel, which gets a roundup
+  # every morning and a look back over the week on Mondays. Nothing changes
+  # here as a result. The stream is still how the pipeline is watched working,
+  # and every article still has to reach it before it counts as published; it
+  # simply has an audience of the people running it. Do not point anything
+  # public at this webhook — see the comment on DISCORD_DIGEST_WEBHOOK_URL in
+  # core/settings.py for why nothing falls back to it.
+  #
+  # Skill-collection repositories are routed to their own channel below, so
+  # they are skipped here — by label, which is why both the topic (the
+  # classifier's tag) and the source (set at scrape time) are listed: either
+  # one is enough to reroute an article.
   - id: discord
     enabled: true
     skip: ["topic:claude-skills", "source:claude-skills"]
@@ -101,3 +111,15 @@ channels:
   - id: discord-rejected
     enabled: true
     consumes: rejected
+
+  # The roundups — a daily every morning and a look back on Mondays, both into
+  # the one channel that is actually meant to be read. `consumes: digest` puts
+  # it on a queue no article is ever in: the build stage writes a roundup as an
+  # issue of its own, this channel posts it and records the message id, and the
+  # closing pass shuts it. So it never takes part in closing an article, and a
+  # dead webhook here holds up nothing but the roundups themselves.
+  # Needs the DISCORD_DIGEST_WEBHOOK_URL secret; DIGEST_FORUM says whether the
+  # channel is a forum, since a roundup post has to be named there.
+  - id: discord-digest
+    enabled: true
+    consumes: digest

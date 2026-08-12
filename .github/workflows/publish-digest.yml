@@ -1,0 +1,49 @@
+name: publish-digest
+
+# Posts the roundups the digest stages wrote. Hourly rather than on a five-
+# minute slot: a roundup is written twice a week at most, and this exists to be
+# the thing that retries — a webhook that was down at 06:00 costs the daily an
+# hour, not a day.
+
+on:
+  schedule:
+    - cron: "8 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: publish-digest
+  # Never cancel: the window between "posted to Discord" and "labelled sent"
+  # is exactly where a cancellation would cause a double post.
+  cancel-in-progress: false
+
+jobs:
+  publish-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Publish digests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The channel both roundups go to. Required: there is no fallback to
+          # the feed webhook, because the feed channel is ours to work in
+          # rather than the one people read.
+          DISCORD_DIGEST_WEBHOOK_URL: ${{ secrets.DISCORD_DIGEST_WEBHOOK_URL }}
+          # Whether that channel is a forum, where a roundup becomes a post of
+          # its own named after its headline. Not a secret — it says nothing an
+          # invite would not — so it is a repository variable.
+          DIGEST_FORUM: ${{ vars.DIGEST_FORUM }}
+        run: squelch publish-digest

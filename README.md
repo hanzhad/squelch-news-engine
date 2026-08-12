@@ -82,7 +82,9 @@ Each pipeline is its own workflow in `.github/workflows/`, triggered by cron and
 | Summarize | `summarize.yml` | Writes up the survivors on the full model and moves them to `status:3-ready` | `20,50 * * * *` |
 | Publish | `publish.yml` | Sends ready articles Discord has not seen to the webhook and marks `sent:discord` | `5,25,45 * * * *` |
 | Close | `close.yml` | Closes ready articles that every enabled channel has delivered | `15,35,55 * * * *` |
-| Digest | `digest.yml` | Builds a weekly roundup with trends out of what reached the feed | `0 9 * * 1` |
+| Digest (daily) | `digest-daily.yml` | Writes the morning roundup over the day just gone into an issue | `0 6 * * *` |
+| Digest (weekly) | `digest.yml` | Writes the look back over the week, with trends, into an issue | `0 9 * * 1` |
+| Publish digest | `publish-digest.yml` | Posts the roundups waiting in the queue and marks `sent:discord-digest` | `8 * * * *` |
 | Publish rejected | `publish-rejected.yml` | Posts recent rejections, with their reasons, to the rejected channel and marks `sent:discord-rejected` | `18 * * * *` |
 | Rescue | `rescue.yml` | Reopens rejected issues with enough 👍 reactions as `status:2-relevant` | `48 * * * *` |
 | Labels | `labels.yml` | Reconciles the label set with the config | on push to `config/**` |
@@ -120,10 +122,72 @@ model a stage sits on is a capacity decision before it is a quality one, and bot
 stages belong on a lite model. See the comments in `config/models.yaml` for why each stage sits
 where it does.
 
-Per-model counting also matters the day you drain one: `digest.yml` takes a `model` input on
-manual dispatch, so a roundup can still be written on a model that has budget left while the
-usual one is spent. Blank — which is what the scheduled run passes — leaves
-`config/models.yaml` in charge.
+Per-model counting also matters the day you drain one: both digest workflows take a `model`
+input on manual dispatch, so a roundup can still be written on a model that has budget left
+while the usual one is spent. Blank — which is what the scheduled runs pass — leaves
+`config/models.yaml` in charge. `digest-daily.yml` additionally takes a `days` input, for
+catching up over a backlog after an outage.
+
+### The digests, and what the feed channel is for now
+
+Two roundups share one Discord channel: a daily every morning over the day just gone, and on
+Mondays a weekly look back once the week is actually over. They are one code path and two
+prompt files — the daily reports, the weekly synthesises — because a reader who gets both on a
+Monday must not feel they got the same message twice. Which one a message is, is in its footer.
+
+**A roundup is an issue too.** The build stage writes it into one labelled `digest:daily` or
+`digest:weekly` and stops there; `publish-digest.yml` posts it, records the message id on it and
+marks `sent:discord-digest`; `close-delivered` closes it. That split is what the rest of the
+pipeline already had and the digest did not:
+
+- A webhook that is down costs a delay, not the roundup — and not one of the day's twenty
+  strong-model requests.
+- The same message-id trick that stops articles double-posting now covers roundups, so a run
+  dying between "posted" and "labelled" relabels next time instead of sending a second copy.
+- **You can read a roundup before it goes out, and edit it.** The YAML block at the top of the
+  issue is what the publisher reads; the markdown under it is a preview. This is what the issue
+  list was always good for, and the digest never got it.
+- Running a build twice in a day writes nothing the second time: it finds today's roundup
+  already waiting. Keyed on the day, so a stalled queue never stops tomorrow's from being
+  written.
+
+A digest issue carries no `status:` label, which is what keeps it inert: classify, summarize, the
+site build and the window the *next* digest reads all step straight over it. The precedent is the
+dedup ledger — a non-article issue, same database, label of its own.
+
+That channel is the one to point people at. The article-by-article `discord` channel is still
+there and still gets every survivor as it lands, but it is the project's own view of the
+pipeline working rather than something to read start to finish. Nothing in the pipeline changed
+for it: an article still has to reach it before it counts as published.
+
+The consequence in code is that **nothing falls back to the feed's webhook any more**.
+`DISCORD_DIGEST_WEBHOOK_URL` is required rather than optional, and a digest run with it unset
+goes red instead of quietly posting the roundup where nobody reads it.
+
+What a roundup gets to read is `digest` in `config/feed.yaml`, and it is two knobs that only
+mean anything together:
+
+```yaml
+digest:
+  max_articles: 60     # the size the roundup aims for
+  min_score: 0         # what it takes to get in past that size — 0 keeps everything
+  summary_chars: 1000  # each article's published write-up, cut to this
+```
+
+Articles are ranked by the classifier's score, and everything down to `max_articles` is in. Past
+that an article is still in if it cleared `min_score` — so the cap is a budget rather than a
+verdict, and nothing is dropped for being article number sixty-one alone. With the shipped
+`min_score: 0` the cap is inert and the whole window reaches the model: at about fifteen
+articles a day, a week is a hundred-odd articles and roughly 12k tokens, which is nothing
+against this model's context. Raise the threshold the day that stops being true — at this
+volume `min_score: 4` would carry about 75 of a week's 105 — and the run logs what it cost,
+because a cap that trims in silence reads as "covered everything" when it did not.
+
+Each article reaches the model as **the write-up the feed published**, not the article behind
+it. A roundup built from raw source text could highlight something that never appeared in the
+channel or the archive — the same guarantee the link check already gives, one level down. Raw
+text is the fallback for issues opened by hand, which have no write-up, and that is what
+`summary_chars` really bounds.
 
 ## Quick start
 
@@ -134,10 +198,13 @@ usual one is spent. Blank — which is what the scheduled run passes — leaves
 2. **Add the secrets** under *Settings → Secrets and variables → Actions → New repository
    secret*:
    - `GEMINI_API_KEY` — a key from Google AI Studio;
-   - `DISCORD_WEBHOOK_URL` — the webhook of the feed channel (*Channel settings →
-     Integrations → Webhooks*);
-   - `DISCORD_DIGEST_WEBHOOK_URL` — optional. A webhook for a channel of the weekly
-     roundup's own; unset means it lands in the feed channel with everything else.
+   - `DISCORD_WEBHOOK_URL` — the webhook of the article-by-article feed channel (*Channel
+     settings → Integrations → Webhooks*). This is the channel you watch the pipeline in,
+     not the one you invite people to;
+   - `DISCORD_DIGEST_WEBHOOK_URL` — the webhook of the channel both roundups go to, daily
+     and weekly. Required by `publish-digest`: there is deliberately no fallback to the feed
+     channel, because a roundup posted there would be published to nobody. Unset, roundups
+     are still written and simply queue up as open issues until it is set.
    - `DISCORD_REJECTED_WEBHOOK_URL` — optional. A webhook for the channel that shows what
      the classifier rejected (see below). Deliberately no fallback: rejects never land in
      the feed channel. Unset, disable the `discord-rejected` channel in
@@ -178,7 +245,7 @@ Everything you would sit down to change lives in `config/`, one file per thing:
 
 | File | What it holds |
 | --- | --- |
-| `config/feed.yaml` | The name of the feed, `focus`, the allowed `topics`, how far back news reaches, text limits |
+| `config/feed.yaml` | The name of the feed, `focus`, the allowed `topics`, how far back news reaches, text limits, how much of the window a roundup carries |
 | `config/sources.yaml` | The source catalogue and nothing else |
 | `config/delivery.yaml` | Which channels an article must reach before it counts as published, and how much room it gets there |
 | `config/models.yaml` | Which Gemini model runs each stage |
@@ -192,7 +259,8 @@ often and a diff on them should read like a diff on prose.
 | `prompts/classify.md` | What the judge is told |
 | `prompts/summarize.md` | What the writer is told |
 | `prompts/review.md` | What the skills rubric is told |
-| `prompts/digest.md` | What the weekly roundup is told |
+| `prompts/digest-daily.md` | What the morning roundup is told |
+| `prompts/digest-weekly.md` | What the weekly look back is told |
 
 Each file is a `## System` section and a `## Template` section, taken verbatim,
 with notes above them that never reach the model; placeholders are `$name`.
@@ -291,9 +359,9 @@ attached, instead of scrolling away behind the next card.
     forum: true
 ```
 
-For the weekly digest — which has no entry here, being a one-off rather than a queue articles
-pass through — the same switch is the `DIGEST_FORUM` environment variable, next to its webhook.
-Its post is titled with the week's headline.
+For the digests — which have no entry here, being one-offs rather than a queue articles pass
+through — the same switch is the `DIGEST_FORUM` environment variable, next to their webhook. It
+covers both roundups, since they share a channel, and each post is titled with its own headline.
 
 The flag has to match what the channel actually is: Discord refuses a forum message that names
 no thread, and refuses a text message that names one. Get it wrong and the run goes red with
@@ -497,7 +565,7 @@ its neighbour's date. Failing both, the article shows the day it was found.
 `max_body_chars` is how far the article text is truncated before it goes to the LLM. More
 characters mean slower and more expensive calls; 8000 is usually enough.
 
-`title` is the public name of the feed — masthead, RSS channel and digest header. It is kept
+`title` is the public name of the feed — masthead, RSS channel and digest headers. It is kept
 separate from the repository name so the brand can change without renaming the engine.
 
 ## Local development
@@ -521,7 +589,8 @@ CLI commands (the console script from `pyproject.toml` is `squelch`):
 | `squelch publish-rejected` | post recent rejections, with reasons, to the rejected channel |
 | `squelch rescue` | reopen rejected articles the community voted back with 👍 |
 | `squelch close-delivered` | close what every enabled channel has delivered |
-| `squelch digest` | build the weekly digest |
+| `squelch digest --period daily\|weekly` | write one roundup and store it as an issue |
+| `squelch publish-digest` | post the roundups waiting in the queue |
 | `squelch build-site` | render the static archive and the feed |
 | `squelch check-sources` | ask every source for two articles, fail on the ones that have none |
 | `squelch bootstrap-labels` | create or repair labels from the config |
@@ -543,7 +612,7 @@ GITHUB_TOKEN=...
 GITHUB_REPOSITORY=owner/repo
 GEMINI_API_KEY=...
 DISCORD_WEBHOOK_URL=...
-DISCORD_DIGEST_WEBHOOK_URL=...   # optional, defaults to the one above
+DISCORD_DIGEST_WEBHOOK_URL=...   # required by `squelch digest`; no fallback to the one above
 ```
 
 The same file overrides the thresholds in `src/squelch/core/settings.py` — for example

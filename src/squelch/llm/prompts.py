@@ -22,14 +22,12 @@ import yaml
 from pydantic import BaseModel
 
 from ..core.config import CONFIG_DIR, Config
+from ..core.models import Period
+from ..core.text import trim
 from ..github.issues import IssueRecord
 
 PROMPTS_DIR = Path("prompts")
 MODELS_PATH = CONFIG_DIR / "models.yaml"
-
-# Enough of each article for the model to see the theme, short enough that forty
-# of them still make a small request.
-DIGEST_SUMMARY_CHARS = 400
 
 # A level-two heading opens a section; everything before the first one is the
 # file's own notes to whoever edits it, and never reaches the model.
@@ -133,11 +131,23 @@ def review_prompt(config: Config, issue: IssueRecord) -> str:
     )
 
 
-def digest_prompt(config: Config, days: int, issues: Sequence[IssueRecord]) -> str:
-    """One roundup over everything the feed published in the window."""
+def digest_prompt(
+    config: Config, period: Period, days: int, issues: Sequence[IssueRecord]
+) -> str:
+    """One roundup over everything the feed published in the window.
+
+    The period chooses the file, not a branch in here: the daily and the weekly
+    ask for different writing, and the difference belongs in prose that can be
+    rewritten without a deploy.
+    """
     entries: list[str] = []
     for issue in issues:
-        gist = " ".join((issue.summary or issue.text).split())[:DIGEST_SUMMARY_CHARS]
+        # The write-up the feed actually published, not the article behind it.
+        # A roundup that read the raw text could say things the channel and the
+        # archive never said — the same guarantee _verified_highlights gives for
+        # links, one level down. Raw text is the fallback for issues opened by
+        # hand, which have no write-up, and that is what the cap really bounds.
+        gist = trim(" ".join((issue.summary or issue.text).split()), config.digest.summary_chars)
         entries += [
             f"- Title: {issue.title}",
             f"  URL: {issue.url or issue.html_url}",
@@ -145,7 +155,7 @@ def digest_prompt(config: Config, days: int, issues: Sequence[IssueRecord]) -> s
         ]
 
     return _fill(
-        load_prompt("digest").template,
+        load_prompt(period.stage).template,
         focus=config.focus.strip(),
         count=str(len(issues)),
         days=str(days),

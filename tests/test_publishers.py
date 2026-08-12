@@ -8,7 +8,6 @@ from squelch.core.settings import Settings
 from squelch.publishers.discord import DiscordError, _Webhook, _with_wait
 
 FEED = "https://discord.com/api/webhooks/1/feed"
-DIGEST = "https://discord.com/api/webhooks/2/digest"
 
 
 def make_settings(**overrides: str) -> Settings:
@@ -20,24 +19,9 @@ def make_settings(**overrides: str) -> Settings:
     return Settings(_env_file=None, **values)  # type: ignore[arg-type]
 
 
-def test_the_digest_goes_to_its_own_channel_when_it_has_one() -> None:
-    settings = make_settings(discord_digest_webhook_url=DIGEST)
-
-    assert settings.digest_webhook_url == DIGEST
-
-
-def test_the_digest_falls_back_to_the_feed_channel() -> None:
-    # The digest channel is optional; a roundup in the feed beats no roundup.
-    assert make_settings().digest_webhook_url == FEED
-
-
-def test_no_webhook_at_all_is_an_error_rather_than_a_silent_no_op(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
-
+def test_no_webhook_at_all_is_an_error_rather_than_a_silent_no_op() -> None:
     with pytest.raises(DiscordError):
-        _Webhook(Settings(_env_file=None))  # type: ignore[call-arg]
+        _Webhook(make_settings(), "")
 
 
 def test_the_webhook_always_asks_discord_for_the_message_id() -> None:

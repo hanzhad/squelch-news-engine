@@ -22,10 +22,11 @@ import httpx
 
 from ..core.config import Config, Emphasis
 from ..core.log import get_logger
-from ..core.models import Digest, DigestEntry, Status
+from ..core.models import Digest, DigestEntry, Period, Status
 from ..core.settings import Settings
 from ..core.text import trim
 from ..core.throttle import paced
+from ..github.digests import DigestStore, digest_from_meta, period_of
 from ..github.issues import IssueRecord, IssueStore
 
 log = get_logger(__name__)
@@ -119,8 +120,6 @@ SKILL_MARKS = {"thin": "*thin* — ", "unclear": "*unclear* — "}
 # it reaches Discord's limit, and the repository is one click away.
 MAX_REVIEWED_SKILLS = 15
 REVIEW_DISCLAIMER = "squelch · read from the repository's files, nothing was executed"
-# Last resort for the name of the digest's forum post; see post_digest.
-DIGEST_THREAD_NAME = "Weekly digest"
 
 
 class DiscordError(RuntimeError):
@@ -189,13 +188,19 @@ def _with_wait(url: str) -> str:
 
 
 class _Webhook:
-    """One webhook connection, with Discord's bucket bookkeeping attached."""
+    """One webhook connection, with Discord's bucket bookkeeping attached.
 
-    def __init__(self, settings: Settings, url: str = "") -> None:
-        target = url or settings.discord_webhook_url
-        if not target:
-            raise DiscordError("DISCORD_WEBHOOK_URL is not set")
-        self._url = _with_wait(target)
+    The URL is always passed in. There used to be a fall-back to the feed's
+    webhook for callers that had none of their own, and it has to stay gone:
+    the feed channel is the project's own working channel now, so a message
+    that quietly landed there would be a message nobody outside reads. Every
+    caller names its own channel or fails saying which secret is missing.
+    """
+
+    def __init__(self, settings: Settings, url: str) -> None:
+        if not url.strip():
+            raise DiscordError("no webhook URL was given for this channel")
+        self._url = _with_wait(url)
         self._client = httpx.Client(
             timeout=settings.request_timeout,
             headers={"User-Agent": "squelch"},
@@ -561,13 +566,15 @@ def _highlight_field(entry: DigestEntry) -> dict[str, Any]:
     }
 
 
-def _digest_embeds(digest: Digest) -> list[dict[str, Any]]:
+def _digest_embeds(digest: Digest, period: Period) -> list[dict[str, Any]]:
     trends = "\n".join(f"• {trend.strip()}" for trend in digest.trends if trend.strip())
     lead: dict[str, Any] = {
         "title": trim(digest.headline, TITLE_LIMIT),
         "description": trim(trends, DESCRIPTION_LIMIT),
         "color": ACCENT_COLOR,
-        "footer": {"text": "squelch · weekly digest"},
+        # Both roundups share a channel, so the footer is the only thing that
+        # says which one this is — and on Monday a reader gets both.
+        "footer": {"text": f"squelch · {period.label}"},
     }
     if not digest.highlights:
         return [lead]
@@ -798,24 +805,95 @@ def publish_rejected(settings: Settings, config: Config, store: IssueStore) -> i
     return posted
 
 
-def post_digest(settings: Settings, digest: Digest) -> None:
-    """Post the weekly roundup as one message, to its own channel if it has one.
+def publish_digests(settings: Settings, config: Config, store: DigestStore) -> int:
+    """Post the roundups waiting in the queue and mark each one delivered.
 
-    A week of news read back in one sitting is a different thing from the
-    article that just landed, and it gets buried if it arrives in the same
-    stream. Falls back to the feed's webhook when no digest channel is set.
+    Both periods go to the same channel on purpose: the daily and the weekly
+    are the same promise to the same reader — open this one place and you know
+    what happened — and splitting them would only make each half look quiet.
+    What tells them apart is the footer, and in a forum the post's own title.
 
-    In a forum that channel gets one post per week, titled with the week's
-    headline, so a roundup can be discussed without the next one burying the
-    argument. The digest has no entry in delivery.yaml — it is not a queue any
-    article passes through — so the flag lives beside its webhook instead.
+    No fallback to the feed's webhook. The feed channel is where every article
+    lands one by one, and it is not the channel people read; a roundup posted
+    there by accident would be published to nobody.
+
+    Nothing here closes an issue, and one bad roundup never stops the batch:
+    whatever fails keeps its place in the queue for the next run.
     """
-    thread_name = ""
-    if settings.digest_forum:
-        # A forum post cannot be nameless, and a model can return a blank
-        # headline; a dull title beats a 400 that loses the whole week.
-        thread_name = digest.headline.strip() or DIGEST_THREAD_NAME
+    channels = config.digest_channels
+    if not channels:
+        log.info("no digest channel is enabled in delivery.yaml, nothing to do")
+        return 0
+    if not settings.discord_digest_webhook_url:
+        raise DiscordError("DISCORD_DIGEST_WEBHOOK_URL is not set")
 
-    with _Webhook(settings, settings.digest_webhook_url) as webhook:
-        sent = webhook.send(_payload(_digest_embeds(digest), thread_name))
-    log.info("posted digest as message %s", sent.message_id or "?")
+    total = 0
+    for channel in channels:
+        pending = store.list_pending(channel.id, limit=settings.publish_batch_size)
+        if not pending:
+            log.info("nothing to post for %s", channel.id)
+            continue
+        with _Webhook(settings, settings.discord_digest_webhook_url) as webhook:
+            total += _deliver_digests(webhook, store, pending, channel.id, settings)
+    return total
+
+
+def _deliver_digests(
+    webhook: _Webhook,
+    store: DigestStore,
+    issues: list[IssueRecord],
+    channel: str,
+    settings: Settings,
+) -> int:
+    posted = 0
+    for issue in paced(issues, settings.publish_delay_seconds):
+        record = issue.delivery(channel)
+        if record:
+            # A previous run posted this and died before its label landed.
+            # Reposting would double it up, so only the label moves.
+            #
+            # Any record at all counts, not just one carrying a message id:
+            # nothing writes this except a send that already succeeded, and
+            # Discord occasionally answers 2xx with a body we cannot read, which
+            # leaves the id blank. Treating a blank id as "never posted" would
+            # reopen the exact window this bookkeeping exists to close.
+            details = {k: v for k, v in record.items() if k != "at"}
+            try:
+                store.record_delivery(issue, channel, details)
+            except Exception as exc:  # noqa: BLE001 - retried on the next run
+                log.error("#%d is already posted but will not relabel: %s", issue.number, exc)
+            continue
+
+        period = period_of(issue)
+        digest = digest_from_meta(issue.meta)
+        if digest is None:
+            # Edited into something unreadable. Left in the queue on purpose:
+            # the fix is to repair the block, and a silent skip would hide that.
+            log.error("#%d holds no readable roundup, skipping it", issue.number)
+            continue
+
+        thread_name = ""
+        if settings.digest_forum:
+            # A forum post cannot be nameless, and a model can return a blank
+            # headline; a dull title beats a 400 that loses the whole roundup.
+            thread_name = digest.headline.strip() or period.label.capitalize()
+
+        try:
+            sent = webhook.send(_payload(_digest_embeds(digest, period), thread_name))
+        except Exception as exc:  # noqa: BLE001 - one roundup must not stop the batch
+            log.error("could not post #%d: %s", issue.number, exc)
+            continue
+        posted += 1
+
+        try:
+            store.record_delivery(issue, channel, {"message_id": sent.message_id})
+        except Exception as exc:  # noqa: BLE001 - the message is out either way
+            log.error(
+                "#%d posted as message %s but was not recorded: %s",
+                issue.number,
+                sent.message_id or "?",
+                exc,
+            )
+        else:
+            log.info("posted %s #%d as message %s", period.label, issue.number, sent.message_id)
+    return posted

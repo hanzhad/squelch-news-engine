@@ -13,8 +13,9 @@ from urllib.parse import quote
 
 from ..core.config import Config
 from ..core.log import get_logger
-from ..core.models import Status
+from ..core.models import Period, Status
 from .client import GitHubClient
+from .digests import digest_label
 from .issues import SENT_PREFIX
 from .ledger import LEDGER_LABEL
 
@@ -39,6 +40,13 @@ STATUS_LABELS = [
 def label_specs(config: Config) -> list[LabelSpec]:
     specs = list(STATUS_LABELS)
     specs.append(LabelSpec(LEDGER_LABEL, "c5def5", "Bookkeeping: the scraper's dedup ledger"))
+    # The roundups. Their own axis, never `status:` — that is what keeps a
+    # digest issue invisible to every article query, including the window the
+    # next digest reads.
+    specs += [
+        LabelSpec(digest_label(period), "5319e7", f"A {period.label} waiting to be posted")
+        for period in Period
+    ]
     # Every channel, not only the enabled ones: turning a channel off must not
     # make the labels it already wrote unreadable.
     specs += [

@@ -10,7 +10,13 @@ writing, not like a diff on a YAML block scalar.
 | [classify.md](classify.md) | The judge: does this article get a slot at all | every scraped item |
 | [summarize.md](summarize.md) | The writer: the blurb that stands in for the article | every article that survived |
 | [review.md](review.md) | The rubric: a skill collection read skill by skill | articles routed to a channel with `review: true` |
-| [digest.md](digest.md) | The weekly roundup over everything published | once a week |
+| [digest-daily.md](digest-daily.md) | The morning roundup over the day just gone | once a day |
+| [digest-weekly.md](digest-weekly.md) | The look back over the whole week | once a week |
+
+The two digests share a Discord channel and a response schema, and differ only
+in what they are told — which is the point of the split: the daily reports, the
+weekly synthesises, and a reader who gets both must not feel they got the same
+message twice.
 
 Which model runs each stage is [config/models.yaml](../config/models.yaml);
 what the feed is about is [config/feed.yaml](../config/feed.yaml). Neither

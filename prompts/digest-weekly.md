@@ -1,8 +1,13 @@
-# Digest
+# Digest — weekly
 
-The weekly roundup over everything the feed published in the window. Runs once a
-week, which is why it can afford a scarcer, stronger model than the per-article
-stages — see the comments in [config/models.yaml](../config/models.yaml).
+The look back over everything the feed published in the last week. Runs once a
+week, on the strong model — see the comments in
+[config/models.yaml](../config/models.yaml).
+
+This is the synthesis half of the pair. [digest-daily.md](digest-daily.md) tells
+a reader what happened; this one tells them what it added up to, and it is
+allowed to repeat an article a daily already carried — the point is the shape of
+the week, not the news.
 
 `$articles` is assembled in `src/squelch/llm/prompts.py`: title, URL and a
 400-character gist per article, so that forty of them still make a small

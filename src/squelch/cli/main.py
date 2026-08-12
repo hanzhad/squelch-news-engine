@@ -23,6 +23,7 @@ import typer
 
 from ..core.config import FEED_PATH, Config, load_config
 from ..core.log import get_logger, setup_logging
+from ..core.models import Period
 from ..core.settings import Settings, get_settings
 from ..github.client import GitHubClient, GitHubError
 from ..github.issues import IssueStore
@@ -224,51 +225,88 @@ def close_delivered() -> None:
     settings = _boot()
     config = _config()
 
+    from ..github.digests import DigestStore
+
     with _store(settings) as store:
         closed = store.close_delivered(config.ready_channels)
-    log.info("close done: %d article(s) published", len(closed))
+        # Roundups close the same way and for the same reason, on their own
+        # queue: the publisher never closes, so a channel dying between its
+        # label and the close cannot strand one.
+        posted = DigestStore(store.client).close_delivered(config.digest_channels)
+    log.info(
+        "close done: %d article(s) published, %d roundup(s) closed", len(closed), len(posted)
+    )
 
 
 @app.command()
 def digest(
+    period: Annotated[
+        Period,
+        typer.Option("--period", help="Which roundup to write: the day, or the week."),
+    ] = Period.WEEKLY,
     days: Annotated[
-        int,
-        typer.Option(min=1, help="Summarise articles published in this many past days."),
-    ] = 7,
+        int | None,
+        typer.Option(
+            min=1,
+            help="Look back this many days instead of the period's own window, for catching up.",
+        ),
+    ] = None,
 ) -> None:
-    """Summarise the week's published articles and post the roundup to Discord."""
+    """Write the roundup over what the feed published and store it as an issue.
+
+    Writing and posting are separate stages on purpose. This one touches no
+    webhook: it puts the model's answer in the database, where it survives a
+    Discord outage and can be read — or edited — before `publish-digest` sends
+    it out.
+    """
     settings = _boot()
     config = _config()
     _require(settings, "GEMINI_API_KEY")
-    if not settings.digest_webhook_url:
-        # Either webhook will do: the digest channel is optional and falls back
-        # to the feed's.
-        log.error("DISCORD_WEBHOOK_URL is not set")
-        raise typer.Exit(1)
 
-    from ..llm.digest import DigestError, build_digest
-    from ..publishers.discord import DiscordError, post_digest
+    from ..github.digests import DigestStore
+    from ..llm.digest import DigestError, run_digest
+
+    window = days or period.days
+    try:
+        with _store(settings) as store:
+            issue = run_digest(
+                settings, config, store, DigestStore(store.client), period, days=days
+            )
+    except DigestError as exc:
+        # Distinct from a quiet window on purpose: this one has to go red, or a
+        # digest that silently never arrives looks exactly like a quiet week.
+        log.error("could not build the %s: %s", period.label, exc)
+        raise typer.Exit(1) from exc
+
+    if issue is None:
+        # A quiet day is a normal outcome, not a failed run — and with a daily
+        # roundup it is a common one.
+        log.info("no %s written for the last %d days", period.label, window)
+        return
+    log.info("%s stored as #%d: %s", period.label, issue.number, issue.title)
+
+
+@app.command("publish-digest")
+def publish_digest_cmd() -> None:
+    """Post the roundups waiting in the queue to the digest channel."""
+    settings = _boot()
+    config = _config()
+
+    from ..github.digests import DigestStore
+    from ..publishers.discord import DiscordError, publish_digests
+
+    if config.digest_channels:
+        # Checked here so a forgotten secret fails the run visibly instead of
+        # roundups piling up unposted with nothing saying why.
+        _require(settings, "DISCORD_DIGEST_WEBHOOK_URL")
 
     try:
         with _store(settings) as store:
-            result = build_digest(settings, config, store, days=days)
-    except DigestError as exc:
-        # Distinct from a quiet week on purpose: this one has to go red, or a
-        # digest that silently never arrives looks exactly like a quiet week.
-        log.error("could not build the digest: %s", exc)
-        raise typer.Exit(1) from exc
-
-    if result is None:
-        # A quiet week is a normal outcome, not a failed run.
-        log.info("nothing published in the last %d days, no digest to send", days)
-        return
-
-    try:
-        post_digest(settings, result)
+            sent = publish_digests(settings, config, DigestStore(store.client))
     except DiscordError as exc:
         log.error("discord: %s", exc)
         raise typer.Exit(1) from exc
-    log.info("digest done: %s", result.headline)
+    log.info("publish-digest done: %d roundup(s) posted", sent)
 
 
 @app.command("build-site")

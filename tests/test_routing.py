@@ -59,8 +59,11 @@ class FakeWebhook:
     # can tell an opening post from a reply under one.
     threads: list[str] = []
 
-    def __init__(self, settings: Settings, url: str = "") -> None:
-        self.url = url or settings.discord_webhook_url
+    def __init__(self, settings: Settings, url: str) -> None:
+        # No fallback to the feed webhook, exactly like the real one: a fake
+        # that quietly filled in a missing URL would hide the bug where a
+        # channel posts into somebody else's.
+        self.url = url
 
     def __enter__(self) -> FakeWebhook:
         return self

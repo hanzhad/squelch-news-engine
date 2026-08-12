@@ -8,10 +8,11 @@ GitHub Actions is the scheduler. Python 3.12+, src-layout, package `squelch`.
 ```
 src/squelch/
   core/        models, settings, config loader, URL canonicalization, dedup ledger, logging
-  github/      REST client, issue CRUD + body render/parse, label bootstrap
+  github/      REST client, issue CRUD + body render/parse, label bootstrap,
+               digests (a roundup stored as an issue of its own kind)
   scrapers/    rss, web (Playwright), github repo search, text extraction, orchestration,
                source health check
-  llm/         Gemini calls: classify, summarize, weekly digest
+  llm/         Gemini calls: classify, summarize, review, digest (daily and weekly)
   publishers/  Discord webhook
   site/        static archive rendering (templates live in top-level site/templates/)
   cli/         typer app; console script is `squelch`
@@ -59,6 +60,29 @@ sectioning, never filtering: every article must match some enabled channel, `clo
 counts per article exactly the channels that want it, and an article routed nowhere is left
 open with a warning rather than closed unseen. Each Discord channel has its own webhook env
 var and deliberately no fallback to another channel's.
+
+The digests are the public face, not the per-article stream. Two roundups — daily and weekly —
+share one Discord channel through `DISCORD_DIGEST_WEBHOOK_URL`; `core.models.Period` carries the
+window, the prompt file (`prompts/digest-<period>.md`) and the label, and everything else is one
+code path.
+
+A roundup is an issue, in `github/digests.py` — same database, same body format, its own module
+the way `ledger.py` is. It carries `digest:<period>` and **never** a `status:` label: that is the
+whole reason it stays invisible to classify, summarize, the site build and `list_published_since`,
+which would otherwise feed a digest back into the next one. Writing and posting are separate
+stages (`squelch digest` → `squelch publish-digest`) so the model's answer survives a dead webhook
+and can be edited before it goes out; the YAML block is what the publisher reads, the markdown
+below it is a preview. Delivery reuses the channel bookkeeping through `consumes: digest`, which
+keeps it out of `ready_channels` and therefore out of anything that closes an article. Body before
+label in `record_delivery`, and `close_delivered` still owns the close — both for the same reasons
+as on the article path. What a roundup gets to read is `digest` in `feed.yaml` — `max_articles` is the size it
+aims for and `min_score` is what an article needs to get in past that, so the cap is a budget and
+not a verdict; shipped at `min_score: 0`, it rations nothing. Articles reach the model as the
+write-up the feed published, never as raw source text: a roundup that read the article behind the
+summary could say what the channel never said. The `discord` channel still receives every article and still gates closing, but it is
+the project's own working view now, which is why `_Webhook` no longer falls back to its webhook
+and `DISCORD_DIGEST_WEBHOOK_URL` is required: a roundup posted into the feed channel would be
+published to nobody, and it would look like a successful run.
 
 The classifier's `score` decides how much room an article gets in Discord, through `emphasis`
 thresholds in `delivery.yaml` — `_weight` in `publishers/discord.py` maps it to a lead, a
