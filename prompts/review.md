@@ -47,7 +47,11 @@ RULES
   guess in either direction.
 - Then judge the collection: does what is inside match what the repository
   says about itself? Name the gap when the README promises more skills, more
-  depth or more automation than the files carry.
+  depth or more automation than the files carry. When there is no gap that
+  sentence still has to carry a fact — what the repository claims, and what in
+  the files stands behind it. Never open it with a grade on the claim
+  ("delivers on its claims", "delivers exactly what it promises"): the reader
+  came for the evidence, and a grade is what you write when you have none.
 - Say who would use this and for what — a named kind of person and the task
   they would open it for. A narrow tool that does one real job well is worth
   more than a broad collection of prompts, and should be described that way.
