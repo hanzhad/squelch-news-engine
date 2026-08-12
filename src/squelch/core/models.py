@@ -234,25 +234,34 @@ class DigestEntry(BaseModel):
 class Digest(BaseModel):
     """A roundup produced from published articles. Same shape either period.
 
-    Read in three parts: a body that says what the window amounted to, the
-    threads running through it where there are any, and the articles
-    themselves at the end. The descriptions travel with the request as the
-    response schema, so they say nothing about a day or a week — the rules that
-    differ between the two live in the prompt files, where they can be
-    rewritten without a deploy.
+    Read in layers, and the layering is the design. One paragraph asked to be
+    both skimmable and synthesised produced neither: made plain it turned into
+    a sentence per article, made analytical it turned into prose nobody
+    finishes. So ``brief`` is what somebody exhausted gets in two sentences,
+    ``summary`` is the block underneath for whoever went on, and each is judged
+    by its own rules.
+
+    There is no headline field. It named the archived issue and nothing else,
+    and once ``brief`` existed the two were the same sentence written twice —
+    a field the model fills only because it is there, which is exactly how
+    trends started leaking into the daily.
+
+    The descriptions travel with the request as the response schema, so they
+    say nothing about a day or a week: the rules that differ between the two
+    live in the prompt files, where they can be rewritten without a deploy.
     """
 
-    headline: str = Field(
+    brief: str = Field(
         description=(
-            "One sentence naming what this stretch was actually about. Used to "
-            "title the archived roundup, not shown to readers."
+            "One or two sentences, in the plainest words available: the whole point, "
+            "for somebody too tired to read further. Never a list."
         )
     )
     summary: str = Field(
         description=(
-            "The roundup itself: connected prose over everything below, saying what "
-            "shipped and what it adds up to. Not a list, and never a restatement of "
-            "the article titles one by one."
+            "The detailed block, for a reader who did go on: connected prose grouping "
+            "what belongs together and ending with what it all adds up to. Never a "
+            "restatement of the article titles one by one."
         )
     )
     trends: list[str] = Field(

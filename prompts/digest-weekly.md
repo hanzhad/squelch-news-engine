@@ -4,8 +4,8 @@ The look back over everything the feed published in the last week. Runs once a
 week, on the strong model — see the comments in
 [config/models.yaml](../config/models.yaml).
 
-Same three parts as [digest-daily.md](digest-daily.md) — the date, a body, the
-links — plus the one thing a single day cannot have: threads that only become
+Same four parts as [digest-daily.md](digest-daily.md) — the date, a two-sentence
+brief, a detailed block, the links — plus the one thing a single day cannot have: threads that only become
 visible across several days. That is what has to keep the two from reading
 alike now that both write connected prose. The daily says what happened and
 what it meant; this one says what the week turned out to be *about*, and it is
@@ -39,16 +39,25 @@ TASK
 These $count articles were published by the feed in the last $days days.
 Write the roundup.
 
-THE BODY
+THE BRIEF — for somebody who will read nothing else
+
+One or two sentences. Never three.
+
+- What the week turned out to be about, in the plainest words you have.
+- Written for somebody who has already had a long week. If it needs a second
+  pass to land, rewrite it.
+- Never a list. Never a semicolon. No more than two company names.
+- This is not a title. Write it as something you would say out loud.
+
+THE DETAIL — for whoever went on
 
 Four to six sentences of connected prose about the week as a whole.
 
-- Lead with the point. The first sentence says what the week turned out to be
-  about. If somebody reads that line and nothing else, they should still have
-  got something out of this.
-- Say what changed for somebody building with this. These readers saw the
-  individual stories as they landed; what they cannot get anywhere else is the
-  shape of the whole.
+- Say what changed for somebody building with this, and end on it. These
+  readers saw the individual stories as they landed; what they cannot get
+  anywhere else is the shape of the whole, and that closing sentence is the
+  first thing to go missing when the rest is written well.
+- Do not restate the brief. It is directly above; start where it left off.
 - Never write a sentence per article. Group what belongs together, name the
   connection, and spend your sentences on what mattered rather than covering
   everything evenly.
@@ -87,8 +96,6 @@ THE TRENDS
 
 THE REST
 
-- The headline is one sentence naming what the week was about, for the
-  archive. It is not shown to readers, so do not write it as a title.
 - List the articles worth opening, at most eight, most important first. Titles
   only — copy each title and URL exactly as given below, and never write a URL
   that does not appear in the list.

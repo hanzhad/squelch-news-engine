@@ -52,6 +52,10 @@ class BuiltDigest(NamedTuple):
     digest: Digest
     articles: int
     days: int
+    # Highlight URL -> the feed channel's post about that article, where one
+    # exists. Resolved here rather than asked of the model, which must never be
+    # in a position to write a Discord link.
+    links: dict[str, str] = {}
 
 
 def build_digest(
@@ -104,7 +108,48 @@ def build_digest(
         len(digest.highlights),
         len(ranked),
     )
-    return BuiltDigest(digest, len(ranked), window)
+    return BuiltDigest(
+        digest, len(ranked), window, _feed_links(digest, ranked, config.digest.link_channel)
+    )
+
+
+def _feed_links(digest: Digest, issues: list[IssueRecord], channel: str) -> dict[str, str]:
+    """Where each highlight should point: the feed's post about that article.
+
+    A roundup is the way into the article-by-article channel, not a substitute
+    for it, so a highlight lands on the message there — with whatever
+    discussion has already gathered under it — rather than straight on the
+    publisher's page.
+
+    Resolved from what the delivery pass recorded, never asked of the model. An
+    article the feed has not carried yet, or one delivered before message links
+    were being stored, simply keeps its own URL.
+    """
+    if not channel:
+        return {}
+    by_article = {
+        canonicalize(url): link
+        for url, link in (
+            (
+                issue.url or issue.html_url,
+                str(issue.delivery(channel).get("message_url") or ""),
+            )
+            for issue in issues
+        )
+        if url and link
+    }
+    resolved = {
+        entry.url: by_article[canonicalize(entry.url)]
+        for entry in digest.highlights
+        if canonicalize(entry.url) in by_article
+    }
+    if len(resolved) < len(digest.highlights):
+        log.info(
+            "%d of %d highlights link to the feed; the rest point at the article",
+            len(resolved),
+            len(digest.highlights),
+        )
+    return resolved
 
 
 def run_digest(
@@ -145,7 +190,14 @@ def run_digest(
     built = build_digest(settings, config, store, period, days=days)
     if built is None:
         return None
-    return digests.create(built.digest, period, built.days, built.articles, built_on=today)
+    return digests.create(
+        built.digest,
+        period,
+        built.days,
+        built.articles,
+        built_on=today,
+        links=built.links,
+    )
 
 
 def _selected(issues: list[IssueRecord], policy: DigestPolicy) -> list[IssueRecord]:

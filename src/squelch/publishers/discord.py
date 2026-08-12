@@ -24,7 +24,7 @@ from ..core.config import Config, Emphasis
 from ..core.log import get_logger
 from ..core.models import Digest, DigestEntry, Period, Status
 from ..core.settings import Settings
-from ..core.text import trim
+from ..core.text import first_sentence, trim
 from ..core.throttle import paced
 from ..github.digests import DigestStore, digest_from_meta, period_of
 from ..github.issues import IssueRecord, IssueStore
@@ -211,6 +211,8 @@ class _Webhook:
         # Learnt from the previous response: seconds to hold before the next
         # request, so an exhausted bucket costs a pause instead of a 429.
         self._cooldown = 0.0
+        # None until asked for the first time; "" once we know we cannot get it.
+        self._guild_id: str | None = None
 
     def __enter__(self) -> _Webhook:
         return self
@@ -314,6 +316,37 @@ class _Webhook:
         except ValueError:
             return {}
         return parsed if isinstance(parsed, dict) else {}
+
+    def guild_id(self) -> str:
+        """The server this webhook posts into, asked once and remembered.
+
+        Needed only to build a clickable link to a message: Discord's message
+        URL is /channels/{guild}/{channel}/{message}, and the execute response
+        carries the channel but not the server. Fetching the webhook object
+        itself is the way to get it without another secret.
+
+        Never fatal. A missing or unreadable guild costs the links and nothing
+        else — the message id is still recorded, and callers fall back to the
+        article's own URL.
+        """
+        if self._guild_id is None:
+            self._guild_id = ""
+            try:
+                response = self._client.get(self._url.split("?")[0])
+                if response.is_success:
+                    self._guild_id = str(self._json(response).get("guild_id") or "")
+            except Exception as exc:  # noqa: BLE001 - links are a nicety, delivery is not
+                log.warning("could not read the webhook's guild: %s", exc)
+            if not self._guild_id:
+                log.warning("webhook did not name its guild; message links unavailable")
+        return self._guild_id
+
+    def message_url(self, channel_id: str, message_id: str) -> str:
+        """A link a reader can click, or "" when we cannot build one."""
+        guild = self.guild_id()
+        if not (guild and channel_id and message_id):
+            return ""
+        return f"https://discord.com/channels/{guild}/{channel_id}/{message_id}"
 
     def _sent(self, response: httpx.Response) -> Sent:
         payload = self._json(response)
@@ -559,16 +592,24 @@ def _payload(
     return payload
 
 
-def _highlight_lines(entries: list[DigestEntry], budget: int) -> list[str]:
+def _highlight_lines(
+    entries: list[DigestEntry], budget: int, links: dict[str, str] | None = None
+) -> list[str]:
     """The articles as bare links, dropping the tail rather than half a link.
 
     No commentary per entry: what a release means is said once, in the body.
     Repeating it item by item is what made the roundup a list of captions.
+
+    A link points at the feed channel's own post about that article where the
+    delivery pass recorded one — the roundup is the way into that channel, and
+    the discussion has already gathered there. Anything the feed has not
+    carried keeps the publisher's URL.
     """
     lines: list[str] = []
     for entry in entries[:MAX_HIGHLIGHTS]:
         title = " ".join(entry.title.split())
-        line = f"• [{title}]({entry.url})" if entry.url else f"• {title}"
+        target = (links or {}).get(entry.url) or entry.url
+        line = f"• [{title}]({target})" if target else f"• {title}"
         if len(line) + 1 > budget:
             log.warning("digest trimmed to %d of %d highlights", len(lines), len(entries))
             break
@@ -577,16 +618,26 @@ def _highlight_lines(entries: list[DigestEntry], budget: int) -> list[str]:
     return lines
 
 
-def _digest_embeds(digest: Digest, period: Period, window: str = "") -> list[dict[str, Any]]:
-    """One roundup as one embed: the stretch it covers, the body, the links.
+def _digest_embeds(
+    digest: Digest,
+    period: Period,
+    window: str = "",
+    links: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """One roundup as one embed, read in layers.
 
-    The title is the window rather than the model's headline. A reader opening
-    the channel wants to know which day they are looking at first — they can
-    already see it is a roundup — and on a Monday two of these arrive together.
-    The headline still exists; it names the archived issue and the forum post,
-    where a date alone would not distinguish anything.
+    The title is the stretch covered — a reader opening the channel already
+    knows it is a roundup, and on a Monday two of these arrive together. Then
+    the brief in bold, which is the whole point in two sentences for somebody
+    who will read nothing else, and the detailed block under it for whoever
+    went on. One paragraph asked to do both jobs did neither.
     """
-    blocks = [" ".join(digest.summary.split())]
+    blocks = []
+    brief = " ".join(digest.brief.split())
+    if brief:
+        blocks.append(f"**{brief}**")
+    if digest.summary.strip():
+        blocks.append(" ".join(digest.summary.split()))
 
     trends = "\n".join(f"• {trend.strip()}" for trend in digest.trends if trend.strip())
     if trends:
@@ -596,13 +647,15 @@ def _digest_embeds(digest: Digest, period: Period, window: str = "") -> list[dic
     # take what is left. Losing the last link costs a click; losing the body
     # costs the roundup.
     spent = sum(len(block) + 2 for block in blocks) + len(HIGHLIGHTS_TITLE) + 4
-    lines = _highlight_lines(digest.highlights, min(DESCRIPTION_LIMIT, MESSAGE_LIMIT) - spent)
+    lines = _highlight_lines(
+        digest.highlights, min(DESCRIPTION_LIMIT, MESSAGE_LIMIT) - spent, links
+    )
     if lines:
         blocks.append(f"**{HIGHLIGHTS_TITLE}**\n" + "\n".join(lines))
 
-    # Falls back to the headline only for a roundup stored before windows were
+    # Falls back to the period alone for a roundup stored before windows were
     # recorded; nothing writes one without a window now.
-    title = f"{period.label.capitalize()} · {window}" if window else digest.headline
+    title = f"{period.label.capitalize()} · {window}" if window else period.label.capitalize()
     return [
         {
             "title": trim(title, TITLE_LIMIT),
@@ -695,7 +748,13 @@ def _deliver(
             continue
         posted += 1
 
+        # The link back to this very message. Recorded now, on the article's
+        # own issue, because it is what a digest later points its highlights at
+        # — a roundup is an index into this channel, not a replacement for it.
         details: dict[str, Any] = {"message_id": sent.message_id}
+        link = webhook.message_url(sent.thread_id, sent.message_id)
+        if link:
+            details["message_url"] = link
         if review:
             # The analysis is the reason this channel is a forum: it goes in as
             # a reply under the post, where the argument about it belongs, and
@@ -892,11 +951,15 @@ def _deliver_digests(
         if settings.digest_forum:
             # A forum post cannot be nameless, and a model can return a blank
             # headline; a dull title beats a 400 that loses the whole roundup.
-            thread_name = digest.headline.strip() or period.label.capitalize()
+            thread_name = first_sentence(digest.brief) or period.label.capitalize()
 
         try:
             window = str(issue.meta.get("window") or "")
-            sent = webhook.send(_payload(_digest_embeds(digest, period, window), thread_name))
+            stored = issue.meta.get("links")
+            links = stored if isinstance(stored, dict) else {}
+            sent = webhook.send(
+                _payload(_digest_embeds(digest, period, window, links), thread_name)
+            )
         except Exception as exc:  # noqa: BLE001 - one roundup must not stop the batch
             log.error("could not post #%d: %s", issue.number, exc)
             continue
