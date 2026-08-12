@@ -193,7 +193,11 @@ def test_the_weekly_prompt_names_its_window_and_the_daily_one_does_not(
     prompt that said "yesterday" would be a lie the model cannot catch. The
     weekly has no such override and reads better for naming the week."""
     assert "last 7 days" in prompts.digest_prompt(config, Period.WEEKLY, 7, [issue])
-    assert "days" not in prompts.digest_prompt(config, Period.DAILY, 3, [issue]).lower()
+    # The property itself rather than a banned word: whatever window it is given,
+    # the daily prompt comes out identical, so it cannot be claiming one.
+    assert prompts.digest_prompt(config, Period.DAILY, 3, [issue]) == prompts.digest_prompt(
+        config, Period.DAILY, 1, [issue]
+    )
 
 
 def test_a_literal_brace_in_the_policy_survives(issue: IssueRecord) -> None:
