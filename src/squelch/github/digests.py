@@ -28,7 +28,7 @@ import yaml
 from ..core.config import Channel
 from ..core.log import get_logger
 from ..core.models import Digest, Period
-from ..core.text import trim
+from ..core.text import first_sentence, trim
 from .client import GitHubClient
 from .issues import BODY_LIMIT, SENT_PREFIX, IssueRecord, parse_issue
 
@@ -60,9 +60,9 @@ def render_digest_body(meta: dict[str, Any]) -> str:
     front = yaml.safe_dump(meta, sort_keys=True, allow_unicode=True).strip()
     parts = [f"<!-- squelch\n{front}\n-->", ""]
 
-    headline = str(meta.get("headline") or "").strip()
-    if headline:
-        parts += [f"## {headline}", ""]
+    brief = " ".join(str(meta.get("brief") or "").split())
+    if brief:
+        parts += [f"**{brief}**", ""]
 
     summary = " ".join(str(meta.get("summary") or "").split())
     if summary:
@@ -72,13 +72,17 @@ def render_digest_body(meta: dict[str, Any]) -> str:
     if trends:
         parts += [*(f"- {trend}" for trend in trends), ""]
 
+    links = meta.get("links") if isinstance(meta.get("links"), dict) else {}
     highlights = [h for h in meta.get("highlights") or [] if isinstance(h, dict)]
     if highlights:
         parts += ["### Highlights", ""]
         for entry in highlights:
             title = str(entry.get("title") or "").strip() or "untitled"
             url = str(entry.get("url") or "").strip()
-            parts.append(f"- [{title}]({url})" if url else f"- {title}")
+            # The feed's post about this article where there is one, so the
+            # archived roundup points where the published one does.
+            target = str(links.get(url) or url)
+            parts.append(f"- [{title}]({target})" if target else f"- {title}")
         parts.append("")
 
     parts += [
@@ -118,14 +122,15 @@ def digest_from_meta(meta: dict[str, Any]) -> Digest | None:
     the delivery that follows rewrites the issue body from the empty metadata
     and takes the roundup with it.
     """
+    brief = str(meta.get("brief") or "").strip()
     summary = str(meta.get("summary") or "").strip()
-    if not any((summary, meta.get("highlights"))):
+    if not any((brief, summary, meta.get("highlights"))):
         log.error("stored digest has no body and no articles — refusing to post it")
         return None
     try:
         return Digest.model_validate(
             {
-                "headline": meta.get("headline") or "",
+                "brief": brief,
                 "summary": summary,
                 "trends": meta.get("trends") or [],
                 "highlights": meta.get("highlights") or [],
@@ -213,6 +218,7 @@ class DigestStore:
         days: int,
         articles: int,
         built_on: date | None = None,
+        links: dict[str, str] | None = None,
     ) -> IssueRecord:
         day = built_on or datetime.now(UTC).date()
         # Stored rather than recomputed at delivery: the roundup covers the
@@ -226,15 +232,19 @@ class DigestStore:
             "built_on": day.isoformat(),
             "built_at": datetime.now(UTC).isoformat(),
             "window": period.window_label(start, day),
-            "headline": digest.headline,
+            "brief": digest.brief,
             "summary": digest.summary,
             "trends": list(digest.trends),
             "highlights": [entry.model_dump() for entry in digest.highlights],
+            # Written by us, never by the model: where each highlight points in
+            # the feed channel. Kept beside the highlights rather than inside
+            # them so the response schema stays free of Discord URLs.
+            "links": dict(links or {}),
         }
-        # The headline names the issue, so the tracker reads as a list of
-        # roundups. A model can return a blank one, and GitHub refuses an
-        # untitled issue.
-        title = trim(digest.headline.strip(), TITLE_LIMIT) or period.label.capitalize()
+        # The brief's opening sentence names the issue, so the tracker reads as
+        # a list of roundups. A model can return a blank brief, and GitHub
+        # refuses an untitled issue.
+        title = trim(first_sentence(digest.brief), TITLE_LIMIT) or period.label.capitalize()
         payload = self.client.request(
             "POST",
             f"/repos/{self.repo}/issues",

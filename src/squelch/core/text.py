@@ -9,6 +9,19 @@ most of the text, and make it visible that something was cut.
 from __future__ import annotations
 
 
+def first_sentence(text: str) -> str:
+    """The opening sentence, for the places that need a name rather than prose.
+
+    Deliberately naive: it splits on a full stop followed by a space, so an
+    abbreviation mid-sentence cuts early. That costs a slightly short issue
+    title, which is worth far less than the machinery a real sentence splitter
+    would drag in for one use.
+    """
+    clean = " ".join((text or "").split())
+    head, stop, _ = clean.partition(". ")
+    return (head + ".") if stop else clean
+
+
 def trim(text: str, limit: int) -> str:
     """Cut ``text`` to at most ``limit`` characters, preferring a word boundary."""
     clean = (text or "").strip()

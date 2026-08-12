@@ -90,9 +90,9 @@ class FakeClient:
         return FakeResponse(issue)
 
 
-def make_digest(headline: str = "A day of releases") -> Digest:
+def make_digest(brief: str = "A day of releases.") -> Digest:
     return Digest(
-        headline=headline,
+        brief=brief,
         summary="Inference got cheaper from two directions at once.",
         trends=["Everyone shipped an agent."],
         highlights=[DigestEntry(title="A", url="https://e.com/a")],
@@ -144,7 +144,7 @@ def test_a_stored_roundup_survives_the_round_trip() -> None:
 
     read_back = digest_from_meta(issue.meta)
     assert read_back is not None
-    assert read_back.headline == "A day of releases"
+    assert read_back.brief == "A day of releases."
     assert [h.url for h in read_back.highlights] == ["https://e.com/a"]
     assert issue.meta["articles"] == 15
 
@@ -154,14 +154,14 @@ def test_the_headline_names_the_issue() -> None:
 
     issue = store.create(make_digest(), Period.WEEKLY, days=7, articles=40)
 
-    assert issue.title == "A day of releases"
+    assert issue.title == "A day of releases."
 
 
 def test_a_blank_headline_still_gets_an_issue_title() -> None:
     # GitHub refuses an untitled issue, and a model can return a blank headline.
     store = DigestStore(FakeClient())
 
-    issue = store.create(make_digest(headline="  "), Period.DAILY, days=1, articles=2)
+    issue = store.create(make_digest(brief="  "), Period.DAILY, days=1, articles=2)
 
     assert issue.title == "Daily digest"
 
@@ -190,11 +190,11 @@ def test_the_article_pipeline_never_sees_a_roundup() -> None:
 def test_the_body_keeps_the_payload_a_person_can_edit() -> None:
     # The YAML block is what the publisher reads, so it has to survive being
     # rendered into a body and parsed back out of one.
-    meta = {"period": "daily", "headline": "H", "summary": "S", "trends": ["T"], "highlights": []}
+    meta = {"period": "daily", "brief": "B", "summary": "S", "trends": ["T"], "highlights": []}
 
     parsed, _, _ = parse_body(render_digest_body(meta))
 
-    assert parsed["headline"] == "H"
+    assert parsed["brief"] == "B"
     assert parsed["trends"] == ["T"]
 
 
@@ -267,6 +267,22 @@ def published(number: int, url: str) -> Any:
         title=f"Article {number}",
         html_url=f"https://github.com/acme/feed/issues/{number}",
         meta={"url": url, "score": 5},
+        created_at=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+
+
+def published_with_delivery(number: int, url: str, message_url: str) -> Any:
+    from squelch.github.issues import IssueRecord
+
+    return IssueRecord(
+        number=number,
+        title=f"Article {number}",
+        html_url=f"https://github.com/acme/feed/issues/{number}",
+        meta={
+            "url": url,
+            "score": 5,
+            "delivery": {"discord": {"message_id": "9", "message_url": message_url}},
+        },
         created_at=datetime(2026, 8, 1, tzinfo=UTC),
     )
 
@@ -437,7 +453,7 @@ def test_an_empty_block_is_not_a_roundup() -> None:
     assert digest_from_meta({"summary": "   ", "highlights": []}) is None
     # Trends alone are not a roundup: the body is what this channel is for, and
     # a headline is never shown to a reader.
-    assert digest_from_meta({"headline": "h", "trends": ["a thread"]}) is None
+    assert digest_from_meta({"trends": ["a thread"]}) is None
     assert digest_from_meta({"summary": "What it added up to."}) is not None
 
 
@@ -445,12 +461,12 @@ def test_a_body_too_long_to_render_keeps_its_metadata_block() -> None:
     """A blunt cut would sever the closing `-->`, and a block that no longer
     parses reads back as no roundup at all — the one state writing must never
     be able to reach."""
-    meta = {"headline": "H", "summary": "S", "trends": ["t"], "highlights": [], "filler": "x" * 200}
+    meta = {"brief": "B", "summary": "S", "trends": ["t"], "highlights": [], "filler": "x" * 200}
 
     body = render_digest_body(meta)
     parsed, _, _ = parse_body(body)
 
-    assert parsed["headline"] == "H"
+    assert parsed["brief"] == "B"
 
 
 def test_a_delivery_never_overwrites_a_body_it_could_not_read() -> None:
@@ -545,7 +561,9 @@ def test_the_body_is_the_message_and_the_links_are_bare() -> None:
     publish_digests(make_settings(), digest_config(), DigestStore(client))
 
     body = sent()[0][1]["embeds"][0]["description"]
-    assert body.startswith("Inference got cheaper from two directions at once.")
+    # The brief leads, in bold, and the detail follows it.
+    assert body.startswith("**A day of releases.**")
+    assert "Inference got cheaper from two directions at once." in body
     assert "• [Claude Sonnet 5](https://e.com/a)" in body
     assert "• [Nemotron 3.5](https://e.com/b)" in body
     # One embed, not a lead plus a field-per-article.
@@ -595,7 +613,70 @@ def test_a_long_body_costs_links_rather_than_prose() -> None:
 
     body = sent()[0][1]["embeds"][0]["description"]
     assert len(body) <= 4096
-    assert body.startswith("This sentence is the roundup.")
+    assert body.startswith("**A day of releases.**")
+    assert "This sentence is the roundup." in body
+
+
+def test_a_highlight_points_at_the_feed_s_own_post() -> None:
+    """The roundup is the way into the article-by-article channel, not a
+    substitute for it — so a link lands on the message there, with whatever
+    discussion has gathered under it."""
+    client = FakeClient()
+    feed_post = "https://discord.com/channels/1/22/333"
+    DigestStore(client).create(
+        make_digest().model_copy(
+            update={"highlights": [DigestEntry(title="A", url="https://e.com/a")]}
+        ),
+        Period.DAILY,
+        days=1,
+        articles=1,
+        links={"https://e.com/a": feed_post},
+    )
+
+    publish_digests(make_settings(), digest_config(), DigestStore(client))
+
+    assert f"• [A]({feed_post})" in sent()[0][1]["embeds"][0]["description"]
+
+
+def test_an_article_the_feed_never_carried_keeps_its_own_url() -> None:
+    # Ready but not yet posted, or delivered before links were recorded.
+    client = FakeClient()
+    DigestStore(client).create(
+        make_digest().model_copy(
+            update={"highlights": [DigestEntry(title="A", url="https://e.com/a")]}
+        ),
+        Period.DAILY,
+        days=1,
+        articles=1,
+        links={},
+    )
+
+    publish_digests(make_settings(), digest_config(), DigestStore(client))
+
+    assert "• [A](https://e.com/a)" in sent()[0][1]["embeds"][0]["description"]
+
+
+def test_the_links_are_resolved_by_us_and_never_by_the_model() -> None:
+    """A Discord URL must never be something the model could write. It returns
+    the article's own URL, which the highlight check already validates, and the
+    feed link is attached afterwards from what the delivery pass recorded."""
+    from squelch.llm.digest import _feed_links
+
+    article = published_with_delivery(7, "https://e.com/a", "https://discord.com/channels/1/2/3")
+    digest = make_digest().model_copy(
+        update={
+            "highlights": [
+                DigestEntry(title="known", url="https://e.com/a"),
+                DigestEntry(title="unposted", url="https://e.com/b"),
+            ]
+        }
+    )
+
+    assert _feed_links(digest, [article], "discord") == {
+        "https://e.com/a": "https://discord.com/channels/1/2/3"
+    }
+    # Switching the channel off in config links straight to the articles.
+    assert _feed_links(digest, [article], "") == {}
 
 
 def test_the_footer_says_which_roundup_it_is() -> None:
@@ -607,13 +688,13 @@ def test_the_footer_says_which_roundup_it_is() -> None:
     assert sent()[0][1]["embeds"][0]["footer"]["text"] == "squelch · weekly digest"
 
 
-def test_a_forum_names_the_post_after_the_headline() -> None:
+def test_a_forum_names_the_post_after_the_brief() -> None:
     client = FakeClient()
     stored(client)
 
     publish_digests(make_settings(digest_forum=True), digest_config(), DigestStore(client))
 
-    assert sent()[0][1]["thread_name"] == "A day of releases"
+    assert sent()[0][1]["thread_name"] == "A day of releases."
 
 
 def test_a_text_channel_gets_no_thread_name() -> None:
@@ -651,7 +732,7 @@ def test_the_oldest_waiting_roundup_goes_first() -> None:
     store = DigestStore(client)
     for day in ("Monday", "Tuesday"):
         store.create(
-            make_digest().model_copy(update={"summary": f"{day} happened."}),
+            make_digest().model_copy(update={"brief": f"{day} happened."}),
             Period.DAILY,
             days=1,
             articles=1,
@@ -660,7 +741,7 @@ def test_the_oldest_waiting_roundup_goes_first() -> None:
     publish_digests(make_settings(), digest_config(), store)
 
     bodies = [p["embeds"][0]["description"] for _, p in sent()]
-    assert [b.split()[0] for b in bodies] == ["Monday", "Tuesday"]
+    assert [b.split()[0] for b in bodies] == ["**Monday", "**Tuesday"]
 
 
 # -- closing ------------------------------------------------------------------
