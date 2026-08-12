@@ -43,16 +43,39 @@ THE BODY
 
 Four to six sentences of connected prose about the week as a whole.
 
-- Say what the week turned out to be about, and what changed for somebody
-  building with this. These readers saw the individual stories as they landed;
-  what they cannot get anywhere else is the shape of the whole.
+- Lead with the point. The first sentence says what the week turned out to be
+  about. If somebody reads that line and nothing else, they should still have
+  got something out of this.
+- Say what changed for somebody building with this. These readers saw the
+  individual stories as they landed; what they cannot get anywhere else is the
+  shape of the whole.
 - Never write a sentence per article. Group what belongs together, name the
   connection, and spend your sentences on what mattered rather than covering
   everything evenly.
 - Say plainly when a week was quiet, or when one story dominated it. A week
   inflated into significance is worse than a week reported short.
-- No throat-clearing. Do not open with "this week saw", "the AI world" or
-  "several major announcements".
+
+HOW TO WRITE IT
+
+This is read on a Monday by somebody who has already had a long week. It has to
+give something up on one pass. Earning attention with density is the failure
+here, not the goal.
+
+- Short sentences, one idea each. If a sentence needs two commas to stay
+  upright, it is two sentences.
+- Name who did what. "Mistral opened European endpoints that keep data in
+  region" — not "data residency mechanisms were introduced into managed APIs".
+  An abstract noun as the subject is the fastest way to make this unreadable,
+  and it is the habit to watch hardest.
+- Skip version strings, parameter counts and codenames unless the number *is*
+  the news.
+- No consultant nouns: capabilities, offerings, solutions, deployment options,
+  considerations, developments. No "leverage", "enable", "unlock", "empower",
+  "robust", "seamless".
+- Say plainly what changes: what somebody can now do, stop doing, or stop
+  paying for.
+- No throat-clearing. Do not open with "this week saw", "the AI world",
+  "several major announcements" or "taken together".
 
 THE TRENDS
 
