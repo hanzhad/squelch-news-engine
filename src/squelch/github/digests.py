@@ -20,7 +20,7 @@ label of its own.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import yaml
@@ -64,6 +64,10 @@ def render_digest_body(meta: dict[str, Any]) -> str:
     if headline:
         parts += [f"## {headline}", ""]
 
+    summary = " ".join(str(meta.get("summary") or "").split())
+    if summary:
+        parts += [summary, ""]
+
     trends = [str(t).strip() for t in meta.get("trends") or [] if str(t).strip()]
     if trends:
         parts += [*(f"- {trend}" for trend in trends), ""]
@@ -74,15 +78,14 @@ def render_digest_body(meta: dict[str, Any]) -> str:
         for entry in highlights:
             title = str(entry.get("title") or "").strip() or "untitled"
             url = str(entry.get("url") or "").strip()
-            takeaway = str(entry.get("takeaway") or "").strip()
-            parts.append(f"- [{title}]({url}) — {takeaway}" if url else f"- {title} — {takeaway}")
+            parts.append(f"- [{title}]({url})" if url else f"- {title}")
         parts.append("")
 
     parts += [
         "---",
         "",
         f"**Period:** `{meta.get('period', '?')}` · "
-        f"**Window:** {meta.get('days', '?')} day(s) · "
+        f"**Covers:** {meta.get('window', '?')} · "
         f"**Articles read:** {meta.get('articles', '?')}",
         "",
         "_Edit the YAML block at the top to change what gets posted; the text "
@@ -115,14 +118,15 @@ def digest_from_meta(meta: dict[str, Any]) -> Digest | None:
     the delivery that follows rewrites the issue body from the empty metadata
     and takes the roundup with it.
     """
-    headline = str(meta.get("headline") or "").strip()
-    if not any((headline, meta.get("trends"), meta.get("highlights"))):
-        log.error("stored digest has no headline, trends or highlights — refusing to post it")
+    summary = str(meta.get("summary") or "").strip()
+    if not any((summary, meta.get("highlights"))):
+        log.error("stored digest has no body and no articles — refusing to post it")
         return None
     try:
         return Digest.model_validate(
             {
                 "headline": meta.get("headline") or "",
+                "summary": summary,
                 "trends": meta.get("trends") or [],
                 "highlights": meta.get("highlights") or [],
             }
@@ -210,13 +214,20 @@ class DigestStore:
         articles: int,
         built_on: date | None = None,
     ) -> IssueRecord:
+        day = built_on or datetime.now(UTC).date()
+        # Stored rather than recomputed at delivery: the roundup covers the
+        # window it was built over, and a run posted a day late must not
+        # silently retitle itself to the day it happened to go out.
+        start = day - timedelta(days=days)
         meta: dict[str, Any] = {
             "period": period.value,
             "days": days,
             "articles": articles,
-            "built_on": (built_on or datetime.now(UTC).date()).isoformat(),
+            "built_on": day.isoformat(),
             "built_at": datetime.now(UTC).isoformat(),
+            "window": period.window_label(start, day),
             "headline": digest.headline,
+            "summary": digest.summary,
             "trends": list(digest.trends),
             "highlights": [entry.model_dump() for entry in digest.highlights],
         }

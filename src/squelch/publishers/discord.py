@@ -41,6 +41,9 @@ FIELD_NAME_LIMIT = 256
 FIELD_VALUE_LIMIT = 1024
 MAX_FIELDS = 25
 MAX_EMBEDS = 10
+# Links a roundup ends with. Past this the tail stops being a list somebody
+# reads and the prompts do not ask for more anyway.
+MAX_HIGHLIGHTS = 8
 MESSAGE_LIMIT = 6000
 # The name of a thread a webhook creates in a forum channel. Much shorter than
 # a title, and titles routinely run past it.
@@ -556,47 +559,60 @@ def _payload(
     return payload
 
 
-def _highlight_field(entry: DigestEntry) -> dict[str, Any]:
-    link = f"\n[Read]({entry.url})" if entry.url else ""
-    return {
-        "name": trim(entry.title, FIELD_NAME_LIMIT),
-        # Trim the prose, not the link, so the link never comes out half-written.
-        "value": trim(entry.takeaway, FIELD_VALUE_LIMIT - len(link)) + link,
-        "inline": False,
-    }
+def _highlight_lines(entries: list[DigestEntry], budget: int) -> list[str]:
+    """The articles as bare links, dropping the tail rather than half a link.
 
-
-def _digest_embeds(digest: Digest, period: Period) -> list[dict[str, Any]]:
-    trends = "\n".join(f"• {trend.strip()}" for trend in digest.trends if trend.strip())
-    lead: dict[str, Any] = {
-        "title": trim(digest.headline, TITLE_LIMIT),
-        "description": trim(trends, DESCRIPTION_LIMIT),
-        "color": ACCENT_COLOR,
-        # Both roundups share a channel, so the footer is the only thing that
-        # says which one this is — and on Monday a reader gets both.
-        "footer": {"text": f"squelch · {period.label}"},
-    }
-    if not digest.highlights:
-        return [lead]
-
-    # Highlights are spent against what the lead embed left over, so the digest
-    # loses its tail rather than the whole second embed.
-    budget = MESSAGE_LIMIT - _embed_size(lead) - len(HIGHLIGHTS_TITLE)
-    fields: list[dict[str, Any]] = []
-    for entry in digest.highlights[:MAX_FIELDS]:
-        field = _highlight_field(entry)
-        cost = len(field["name"]) + len(field["value"])
-        if cost > budget:
-            log.warning(
-                "digest trimmed to %d of %d highlights", len(fields), len(digest.highlights)
-            )
+    No commentary per entry: what a release means is said once, in the body.
+    Repeating it item by item is what made the roundup a list of captions.
+    """
+    lines: list[str] = []
+    for entry in entries[:MAX_HIGHLIGHTS]:
+        title = " ".join(entry.title.split())
+        line = f"• [{title}]({entry.url})" if entry.url else f"• {title}"
+        if len(line) + 1 > budget:
+            log.warning("digest trimmed to %d of %d highlights", len(lines), len(entries))
             break
-        budget -= cost
-        fields.append(field)
+        budget -= len(line) + 1
+        lines.append(line)
+    return lines
 
-    if not fields:
-        return [lead]
-    return [lead, {"title": HIGHLIGHTS_TITLE, "color": ACCENT_COLOR, "fields": fields}]
+
+def _digest_embeds(digest: Digest, period: Period, window: str = "") -> list[dict[str, Any]]:
+    """One roundup as one embed: the stretch it covers, the body, the links.
+
+    The title is the window rather than the model's headline. A reader opening
+    the channel wants to know which day they are looking at first — they can
+    already see it is a roundup — and on a Monday two of these arrive together.
+    The headline still exists; it names the archived issue and the forum post,
+    where a date alone would not distinguish anything.
+    """
+    blocks = [" ".join(digest.summary.split())]
+
+    trends = "\n".join(f"• {trend.strip()}" for trend in digest.trends if trend.strip())
+    if trends:
+        blocks.append(trends)
+
+    # The body is what this channel is for, so it is spent first and the links
+    # take what is left. Losing the last link costs a click; losing the body
+    # costs the roundup.
+    spent = sum(len(block) + 2 for block in blocks) + len(HIGHLIGHTS_TITLE) + 4
+    lines = _highlight_lines(digest.highlights, min(DESCRIPTION_LIMIT, MESSAGE_LIMIT) - spent)
+    if lines:
+        blocks.append(f"**{HIGHLIGHTS_TITLE}**\n" + "\n".join(lines))
+
+    # Falls back to the headline only for a roundup stored before windows were
+    # recorded; nothing writes one without a window now.
+    title = f"{period.label.capitalize()} · {window}" if window else digest.headline
+    return [
+        {
+            "title": trim(title, TITLE_LIMIT),
+            "description": trim("\n\n".join(block for block in blocks if block), DESCRIPTION_LIMIT),
+            "color": ACCENT_COLOR,
+            # Both roundups share a channel, so the footer still names which is
+            # which even when the title is a date.
+            "footer": {"text": f"squelch · {period.label}"},
+        }
+    ]
 
 
 # -- entry points -----------------------------------------------------------
@@ -879,7 +895,8 @@ def _deliver_digests(
             thread_name = digest.headline.strip() or period.label.capitalize()
 
         try:
-            sent = webhook.send(_payload(_digest_embeds(digest, period), thread_name))
+            window = str(issue.meta.get("window") or "")
+            sent = webhook.send(_payload(_digest_embeds(digest, period, window), thread_name))
         except Exception as exc:  # noqa: BLE001 - one roundup must not stop the batch
             log.error("could not post #%d: %s", issue.number, exc)
             continue
