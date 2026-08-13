@@ -1,9 +1,12 @@
-name: summarize
+name: feed / 3 summarize
 
 on:
   schedule:
-    # Ten minutes behind classify, so it picks up what that run just kept.
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # Ten minutes behind classify, so it picks up what that run just kept. The full model and the
+    # most expensive call in the pipeline.
     - cron: "20,50 * * * *"
+    # schedule:end
   workflow_dispatch:
 
 permissions:
@@ -11,7 +14,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: summarize
+  group: feed-summarize
   cancel-in-progress: false
 
 jobs:
@@ -23,15 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
+      - uses: ./.github/actions/setup-squelch
 
-      - name: Install
-        run: pip install -e .
-
-      - name: Classify
+      - name: Summarize
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

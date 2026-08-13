@@ -1,4 +1,4 @@
-name: sources
+name: repo / source health
 
 # The scrape runs every half hour and is green whether it found anything or
 # not, which is right — but it means a source that quietly stopped matching
@@ -8,9 +8,11 @@ name: sources
 
 on:
   schedule:
-    # Weekly. Sources rot on the scale of a site redesign, not of an afternoon,
-    # and every run costs each of them a handful of requests.
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # Weekly, and on pull requests touching sources.yaml. Sources rot on the scale of a site
+    # redesign, not of an afternoon, and every run costs each of them a handful of requests.
     - cron: "17 6 * * 1"
+    # schedule:end
   pull_request:
     # A selector edit is checked against the live page before it is merged.
     paths:
@@ -21,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sources-${{ github.ref }}
+  group: repo-source-health-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -31,17 +33,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-
       # The browser extra too: a `web` source that silently degrades to "needs
       # Playwright" would be exactly the invisible failure this job is for.
-      - name: Install
-        run: |
-          pip install -e '.[web]'
-          playwright install --with-deps chromium
+      - uses: ./.github/actions/setup-squelch
+        with:
+          extras: "[web]"
+          playwright: "true"
 
       # Read-only, but the `github` source type searches the API, and an
       # unauthenticated caller gets a budget small enough to make this job

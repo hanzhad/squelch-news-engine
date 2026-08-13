@@ -1,4 +1,4 @@
-name: labels
+name: repo / labels
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
     # colour and with no description, and the issue list stops being readable.
     paths:
       - "config/**"
-      - ".github/workflows/labels.yml"
+      - ".github/workflows/repo-labels.yml"
   workflow_dispatch:
 
 permissions:
@@ -17,7 +17,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: labels
+  group: repo-labels
   cancel-in-progress: false
 
 jobs:
@@ -27,13 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install
-        run: pip install -e .
+      - uses: ./.github/actions/setup-squelch
 
       # Reconciles, never prunes: a label missing from the config is left alone,
       # because issues out in the repository may still be carrying it.

@@ -1,10 +1,13 @@
-name: scrape
+name: feed / 1 scrape
 
 on:
   schedule:
-    # Every 30 minutes, on the hour and the half hour. The filter runs ten
-    # minutes later so it always sees the issues this run just created.
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # Twice an hour. This stage reaches no model and could run far more often, but classify is the
+    # gate: scraping faster than the stage that consumes it only buys a deeper backlog of raw
+    # issues. Raise classify first, this second.
     - cron: "0,30 * * * *"
+    # schedule:end
   workflow_dispatch:
 
 permissions:
@@ -13,7 +16,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: scrape
+  group: feed-scrape
   # Never cancel. A killed run loses the seen-ledger write for issues it has
   # already created, and the next run would re-create them as duplicates.
   cancel-in-progress: false
@@ -25,14 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          # No requirements.txt here; the action falls back to pyproject.toml.
-          cache: pip
-
-      - name: Install
-        run: pip install -e .
+      - uses: ./.github/actions/setup-squelch
 
       - name: Scrape
         env:

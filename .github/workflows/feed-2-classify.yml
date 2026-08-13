@@ -1,9 +1,12 @@
-name: classify
+name: feed / 2 classify
 
 on:
   schedule:
-    # Ten minutes behind scrape, so it always finds the issues that run created.
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # Ten minutes behind scrape, so it always finds the issues that run created. Cheap model, but
+    # still the quota — this is the stage that decides how fast the whole feed can move.
     - cron: "10,40 * * * *"
+    # schedule:end
   workflow_dispatch:
 
 permissions:
@@ -11,7 +14,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: classify
+  group: feed-classify
   cancel-in-progress: false
 
 jobs:
@@ -23,13 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install
-        run: pip install -e .
+      - uses: ./.github/actions/setup-squelch
 
       - name: Classify
         env:

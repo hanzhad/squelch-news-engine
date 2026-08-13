@@ -1,13 +1,17 @@
-name: publish-digest
+name: digest / 2 publish
 
-# Posts the roundups the digest stages wrote. Hourly rather than on a five-
-# minute slot: a roundup is written twice a week at most, and this exists to be
-# the thing that retries — a webhook that was down at 06:00 costs the daily an
-# hour, not a day.
+# Posts the roundups that `digest / 1 write daily` and `… weekly` left waiting
+# in the queue. Split from the writing so the model's answer survives a dead
+# webhook and can be edited before it goes out.
 
 on:
   schedule:
-    - cron: "8 * * * *"
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # Three times an hour. Reaches no model — the answer is already sitting in an issue — so its
+    # only job is to be the thing that retries, and a retry loop is worth running as often as the
+    # grid allows: a webhook that was down at 06:00 costs the daily twenty minutes, not an hour.
+    - cron: "15,35,55 * * * *"
+    # schedule:end
   workflow_dispatch:
 
 permissions:
@@ -15,7 +19,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: publish-digest
+  group: digest-publish
   # Never cancel: the window between "posted to Discord" and "labelled sent"
   # is exactly where a cancellation would cause a double post.
   cancel-in-progress: false
@@ -27,13 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install
-        run: pip install -e .
+      - uses: ./.github/actions/setup-squelch
 
       - name: Publish digests
         env:

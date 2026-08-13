@@ -1,0 +1,210 @@
+# When every workflow runs. This file is the source of truth; the `cron:` lines
+# in .github/workflows/ are generated from it by `squelch schedule --write`
+# (or `make schedule`), and CI fails if the two drift apart.
+#
+# GitHub will not read a schedule from anywhere but the workflow file itself, so
+# without this the grid exists only as eighteen literals and eighteen comment
+# blocks that quietly stop being true. Edit here and nowhere else — a hand edit
+# inside a `# schedule:begin … # schedule:end` block is discarded on the next
+# write, and `--check` will tell you so before it is merged.
+#
+# THE RULE THE GRID ENCODES
+#
+# Every minute of the hour is owned by exactly one stage, so no two ever fire
+# together and queue behind each other on the runner, and the offsets stagger
+# the stages in order so each finds what the one before it just produced.
+#
+# Who gets how many of those minutes is decided by one thing: whether the stage
+# spends an LLM request. Those are paced by the Gemini quota and keep sparse
+# slots — `model: true` records it right next to the cadence it justifies.
+# Everything else costs a runner minute, which is free on a public repository,
+# so it takes a whole residue class (`every: 5`) and runs as often as it likes.
+#
+#   :x0  scrape, classify, summarize, publish-rejected, digest publish
+#   :x1  cases ingest
+#   :x2  cases read
+#   :x3  feed publish
+#   :x4  cases answer, close, rescue
+#
+# Before making anything more frequent, check `model:`. If it is true, you are
+# spending quota, not runner minutes, and the answer is probably no.
+#
+# `cases-2-read` is the deliberate exception, and worth understanding before
+# copying it: it spends a model request and still owns a whole class, because
+# it is the entire wait between somebody posting in the forum and getting an
+# answer. Buying that back cost `cases-3-answer` half its slots and `feed-5-close`
+# two thirds of its own — both free stages whose latency nobody feels.
+#
+# THREE WAYS TO WRITE A STAGE
+#
+#   every + offset   the hourly grid. `every: 5, offset: 3` is :03, :08, :13 …
+#                    `every` must divide 60; `offset` must be below it. This is
+#                    the only form the collision check understands.
+#   cron             anything not hourly — the roundups, the weekly sweep.
+#   event            not scheduled at all. Listed anyway, so this file is a
+#                    complete map of what runs; nothing is written into these.
+#
+# `why` is not decoration: it is written into the workflow as the comment above
+# the cron line, which is what stops the two from ever disagreeing.
+
+stages:
+  # -- feed: an article, from a source to a closed issue ----------------------
+
+  feed-1-scrape:
+    every: 30
+    offset: 0
+    why: >-
+      Twice an hour. This stage reaches no model and could run far more often,
+      but classify is the gate: scraping faster than the stage that consumes it
+      only buys a deeper backlog of raw issues. Raise classify first, this second.
+
+  feed-2-classify:
+    every: 30
+    offset: 10
+    model: true
+    why: >-
+      Ten minutes behind scrape, so it always finds the issues that run created.
+      Cheap model, but still the quota — this is the stage that decides how fast
+      the whole feed can move.
+
+  feed-3-summarize:
+    every: 30
+    offset: 20
+    model: true
+    why: >-
+      Ten minutes behind classify, so it picks up what that run just kept. The
+      full model and the most expensive call in the pipeline.
+
+  feed-4-publish:
+    every: 5
+    offset: 3
+    why: >-
+      Every five minutes, on its own residue class. Only talks to a webhook, so
+      there is nothing to ration: a ready article reaches Discord in five
+      minutes rather than twenty.
+
+  feed-5-close:
+    every: 20
+    offset: 9
+    why: >-
+      Three times an hour, sharing the :x4 class with answer and rescue. Costs
+      nobody a request and is idempotent by construction — a pass with nothing
+      fully delivered reads labels and stops — so the only thing this cadence
+      decides is how long an issue sits open after its last channel took it,
+      which is the cheapest thing on the grid to be slow about. It gave its
+      faster slots to `cases-2-read`.
+
+  feed-publish-rejected:
+    every: 20
+    offset: 5
+    why: >-
+      Three times an hour. Rejections only trickle out of classify, so this is
+      no delivery race, but a webhook run is free and hourly was a cadence
+      chosen when every slot was spoken for rather than one this needed.
+
+  feed-rescue:
+    every: 20
+    offset: 19
+    why: >-
+      Every twenty minutes. Reaction counts ride along on the issue listing, so
+      a vote costs no model call and has no reason to wait an hour. :19 lands
+      one minute ahead of summarize, which is the pass a rescued article needs.
+
+  # -- cases: a forum post, from the channel back to its own thread -----------
+
+  cases-1-ingest:
+    every: 5
+    offset: 1
+    why: >-
+      Every five minutes. Reading the forum costs a Discord connection and
+      nothing else, so this gets a post into the database almost at once and
+      leaves the whole waiting time to `cases-2-read`.
+
+  cases-2-read:
+    every: 5
+    offset: 2
+    model: true
+    why: >-
+      Every five minutes, on its own residue class — the one stage here that
+      spends a model request and still runs as often as anything free. It is
+      the entire wait between somebody posting and getting a reply, and a person
+      is sitting there waiting for it, unlike an article nobody knew existed.
+      The deliberate exception to pacing model stages sparsely: it buys latency
+      where latency is felt, and the forum's volume is low enough that the quota
+      is spent on posts rather than on empty passes.
+
+  cases-3-answer:
+    every: 10
+    offset: 4
+    why: >-
+      Every ten minutes. Posting a reading that is already written reaches no
+      model, so once `cases-2-read` has spent its request there is nothing left
+      to ration — but the reply is already only ten minutes behind the reading,
+      and the spare slots buy `cases-2-read` its own class, which is where the
+      real wait was.
+
+  # -- digest: the roundups; both writers feed the one publisher --------------
+
+  digest-1-write-daily:
+    cron: ["0 6 * * *", "0 8 * * *"]
+    model: true
+    why: >-
+      06:00 UTC, over the day that just ended. Well clear of the weekly's Monday
+      slot, so a reader never gets both in the same minute. Writes into an issue
+      and stops; digest-2-publish posts it. The 08:00 slot is the same run again,
+      blind to whether the first one worked: every other stage runs again within
+      the hour, so a bad minute costs it minutes, while this one runs once and a
+      bad minute costs the whole day — as it did on 13 August 2026. run_digest
+      refuses to build a second roundup for a day that already has one, before it
+      writes a prompt, so on a normal day this spends a runner minute and no
+      model request. It stays inside the same UTC day because that guard is keyed
+      on one, and clear of 09:00 because that is the weekly's.
+
+  digest-1-write-weekly:
+    cron: ["0 9 * * 1"]
+    model: true
+    why: >-
+      Monday morning UTC, once the week it summarises is actually over. Three
+      hours after the daily, so the two never land in the channel together.
+
+  digest-2-publish:
+    every: 20
+    offset: 15
+    why: >-
+      Three times an hour. Reaches no model — the answer is already sitting in
+      an issue — so its only job is to be the thing that retries, and a retry
+      loop is worth running as often as the grid allows: a webhook that was down
+      at 06:00 costs the daily twenty minutes, not an hour.
+
+  # -- site and repo: the archive, and the housekeeping -----------------------
+
+  site-build:
+    event: completion of `feed / 3 summarize`
+    why: >-
+      Rebuilt when new articles land rather than on a clock. Summarize is the
+      only stage that changes what the archive shows — the page and the feed
+      read `status:3-ready` themselves and do not wait on Discord.
+
+  repo-ci:
+    event: pull requests and pushes to main
+    why: Ruff and the offline test suite. The check every merge waits on.
+
+  repo-labels:
+    event: pushes touching config/**
+    why: >-
+      Labels are derived from the config, so a config change is exactly when
+      they go stale. A clock would only ever run it at the wrong moment.
+
+  repo-source-health:
+    cron: ["17 6 * * 1"]
+    why: >-
+      Weekly, and on pull requests touching sources.yaml. Sources rot on the
+      scale of a site redesign, not of an afternoon, and every run costs each of
+      them a handful of requests.
+
+  repo-triage:
+    event: an issue being opened
+    why: >-
+      Takes an issue opened from outside the maintainer team out of the pipeline
+      before any stage can pick it up. Nothing to schedule — it has to be the
+      moment the issue appears.

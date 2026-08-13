@@ -1,0 +1,37 @@
+name: cases / 2 read
+
+on:
+  schedule:
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # Every five minutes, on its own residue class — the one stage here that spends a model request
+    # and still runs as often as anything free. It is the entire wait between somebody posting and
+    # getting a reply, and a person is sitting there waiting for it, unlike an article nobody knew
+    # existed. The deliberate exception to pacing model stages sparsely: it buys latency where
+    # latency is felt, and the forum's volume is low enough that the quota is spent on posts rather
+    # than on empty passes.
+    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
+    # schedule:end
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: cases-read
+  cancel-in-progress: false
+
+jobs:
+  read-cases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-squelch
+
+      - name: Read the cases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: squelch read-cases

@@ -1,27 +1,25 @@
-name: digest-daily
+name: digest / 1 write daily
 
 # The morning roundup, into the same channel as the weekly one. Its own
-# workflow rather than a second cron on digest.yml: two schedules in one file
-# would have to work out which of them fired before it could pick a period, and
-# a daily that can be re-run by hand without also re-running the week is worth
-# the duplicated forty lines.
+# workflow rather than a second cron on digest-1-write-weekly.yml: two schedules
+# in one file would have to work out which of them fired before they could pick a
+# period, and a daily that can be re-run by hand without also re-running the week
+# is worth the duplicated forty lines.
 
 on:
   schedule:
-    # 06:00 UTC daily, over the day that just ended. Well clear of the weekly's
-    # Monday slot, so a reader never gets both in the same minute.
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # 06:00 UTC, over the day that just ended. Well clear of the weekly's Monday slot, so a reader
+    # never gets both in the same minute. Writes into an issue and stops; digest-2-publish posts it.
+    # The 08:00 slot is the same run again, blind to whether the first one worked: every other stage
+    # runs again within the hour, so a bad minute costs it minutes, while this one runs once and a
+    # bad minute costs the whole day — as it did on 13 August 2026. run_digest refuses to build a
+    # second roundup for a day that already has one, before it writes a prompt, so on a normal day
+    # this spends a runner minute and no model request. It stays inside the same UTC day because
+    # that guard is keyed on one, and clear of 09:00 because that is the weekly's.
     - cron: "0 6 * * *"
-    # The same run again, three hours later. Not a retry of the earlier job —
-    # nothing here reads its result — but a second attempt at the day, and it
-    # covers what an in-process retry cannot: a runner that died, a job that
-    # never started, an hour of GitHub being unwell. On a day that already has
-    # its roundup this costs one Actions minute and no model request at all:
-    # `run_digest` looks for a digest built today before it writes a prompt.
-    #
-    # It has to stay inside the same UTC day, because that guard is keyed on
-    # `datetime.now(UTC).date()`. A slot after midnight UTC would be a new day
-    # to it, and would write a second roundup rather than skip one.
-    - cron: "0 9 * * *"
+    - cron: "0 8 * * *"
+    # schedule:end
   workflow_dispatch:
     inputs:
       model:
@@ -44,7 +42,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: digest-daily
+  group: digest-write-daily
   cancel-in-progress: false
 
 jobs:
@@ -54,15 +52,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
+      - uses: ./.github/actions/setup-squelch
 
-      - name: Install
-        run: pip install -e .
-
-      # Writes the roundup into an issue and stops there; publish-digest.yml
+      # Writes the roundup into an issue and stops there; digest-2-publish.yml
       # posts it. Running this twice in a day is safe — the second run finds
       # today's roundup already waiting and writes nothing.
       - name: Daily digest

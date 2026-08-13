@@ -1,11 +1,15 @@
-name: close
+name: feed / 5 close delivered
 
 on:
   schedule:
-    # Ten minutes behind publish, in the gap the other stages leave free. Every
-    # stage sits on its own five-minute slot so they never all fire at once and
-    # queue behind each other on the runner.
-    - cron: "15,35,55 * * * *"
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # Three times an hour, sharing the :x4 class with answer and rescue. Costs nobody a request and
+    # is idempotent by construction — a pass with nothing fully delivered reads labels and stops —
+    # so the only thing this cadence decides is how long an issue sits open after its last channel
+    # took it, which is the cheapest thing on the grid to be slow about. It gave its faster slots to
+    # `cases-2-read`.
+    - cron: "9,29,49 * * * *"
+    # schedule:end
   workflow_dispatch:
 
 permissions:
@@ -13,7 +17,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: close
+  group: feed-close
   cancel-in-progress: false
 
 jobs:
@@ -25,13 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install
-        run: pip install -e .
+      - uses: ./.github/actions/setup-squelch
 
       # Whoever delivers last does not close the issue: it could die in that
       # window and strand the article open with no queue left to find it. This
