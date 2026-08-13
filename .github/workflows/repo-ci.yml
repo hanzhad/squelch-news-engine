@@ -1,4 +1,4 @@
-name: ci
+name: repo / ci
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
 concurrency:
   # One run per branch or PR: a superseded push has nothing left to tell us,
   # and this is the check every merge waits on.
-  group: ci-${{ github.ref }}
+  group: repo-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -21,16 +21,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
+      - uses: ./.github/actions/setup-squelch
         with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install
-        run: pip install -e ".[dev]"
+          extras: "[dev]"
 
       - name: Lint
         run: ruff check .
+
+      # The cron lines in this directory are generated from config/schedule.yaml.
+      # Its own step rather than only a test, because the failure it catches —
+      # somebody edited a `cron:` by hand and the next `make schedule` will
+      # silently throw the edit away — deserves to name itself in the run.
+      - name: Schedule
+        run: squelch schedule --check
 
       # The suite is offline by design — feed fixtures and fake HTTP clients —
       # so it needs no secrets and nothing here can reach the real API.

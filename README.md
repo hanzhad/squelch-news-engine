@@ -73,38 +73,119 @@ feeds yields one uid.
 ## The pipelines
 
 Each pipeline is its own workflow in `.github/workflows/`, triggered by cron and manually via
-**Actions → Run workflow**.
+**Actions → Run workflow**. There are four families, and the file name and the workflow name
+both carry the family, so the Actions sidebar groups them and a run is never ambiguous about
+which pipeline it belongs to: `feed / …` is the article pipeline, `cases / …` the community
+forum, `digest / …` the roundups, `site / …` the archive, and `repo / …` the housekeeping that
+serves the repository rather than the feed. Numbered members run in that order.
 
-| Pipeline | Workflow | What it does | Schedule |
-| --- | --- | --- | --- |
-| Scrape | `scrape.yml` | Walks the enabled sources, drops already-seen uids, opens issues labelled `status:1-raw`, updates the ledger issue | `0,30 * * * *` |
-| Classify | `classify.yml` | Judges each raw issue against `focus` on the cheap model: `status:2-relevant` with tags and a score, or `status:rejected` and closure | `10,40 * * * *` |
-| Summarize | `summarize.yml` | Writes up the survivors on the full model and moves them to `status:3-ready` | `20,50 * * * *` |
-| Publish | `publish.yml` | Sends ready articles Discord has not seen to the webhook and marks `sent:discord` | `5,25,45 * * * *` |
-| Close | `close.yml` | Closes ready articles that every enabled channel has delivered | `15,35,55 * * * *` |
-| Digest (daily) | `digest-daily.yml` | Writes the morning roundup over the day just gone into an issue | `0 6 * * *` |
-| Digest (weekly) | `digest.yml` | Writes the look back over the week, with trends, into an issue | `0 9 * * 1` |
-| Publish digest | `publish-digest.yml` | Posts the roundups waiting in the queue and marks `sent:discord-digest` | `8 * * * *` |
-| Publish rejected | `publish-rejected.yml` | Posts recent rejections, with their reasons, to the rejected channel and marks `sent:discord-rejected` | `18 * * * *` |
-| Rescue | `rescue.yml` | Reopens rejected issues with enough 👍 reactions as `status:2-relevant` | `48 * * * *` |
-| Ingest cases | `ingest-cases.yml` | Reads the community forum and opens an issue per post at `case:1-new` | `2,22,42 * * * *` |
-| Read cases | `read-cases.yml` | Writes a reading of each new case and moves it to `case:2-read` | `7,27,47 * * * *` |
-| Answer cases | `answer-cases.yml` | Posts each waiting reading back inside its own thread and marks `sent:discord-cases` | `12,32,52 * * * *` |
-| Labels | `labels.yml` | Reconciles the label set with the config | on push to `config/**` |
-| Sources | `sources.yml` | Asks every enabled source for a couple of articles and goes red on any that has none | `17 6 * * 1`, and on PRs touching `sources.yaml` |
+**`feed / …` — an article, from a source to a closed issue**
 
-Every stage on the hot path owns its own five-minute slot, so no two ever fire on the same
-minute and queue behind each other on the runner. Everything else sits off that grid — all
-twelve slots are taken. The two community stages that answer to nobody in particular run
-hourly (`publish-rejected`, `rescue`); the forum's three run every twenty minutes, two
-minutes past the grid, because a person posted a case and is waiting for the reply — worst
-case from post to answer is about twenty minutes. The offsets also stagger every stage in
-order, so each finds what the one before it just produced. (GitHub runs cron on a best-effort basis and delays it under load,
-so treat the minutes as intent rather than a guarantee — every stage is written to pick up
-whatever the last one left behind.)
+| Workflow | File | What it does |
+| --- | --- | --- |
+| `feed / 1 scrape` | `feed-1-scrape.yml` | Walks the enabled sources, drops already-seen uids, opens issues labelled `status:1-raw`, updates the ledger issue |
+| `feed / 2 classify` | `feed-2-classify.yml` | Judges each raw issue against `focus` on the cheap model: `status:2-relevant` with tags and a score, or `status:rejected` and closure |
+| `feed / 3 summarize` | `feed-3-summarize.yml` | Writes up the survivors on the full model and moves them to `status:3-ready` |
+| `feed / 4 publish` | `feed-4-publish.yml` | Sends ready articles Discord has not seen to the webhook and marks `sent:discord` |
+| `feed / 5 close delivered` | `feed-5-close.yml` | Closes ready articles that every enabled channel has delivered |
+| `feed / publish rejected` | `feed-publish-rejected.yml` | Posts recent rejections, with their reasons, to the rejected channel and marks `sent:discord-rejected` |
+| `feed / rescue voted` | `feed-rescue.yml` | Reopens rejected issues with enough 👍 reactions as `status:2-relevant` |
 
-There is also `pages.yml` — it renders the static archive, deploys it to GitHub Pages, and marks
-`sent:site` and `sent:rss` on what it rendered. It runs off `summarize`, not `publish`: **the
+**`cases / …` — a forum post, from the channel back to its own thread**
+
+| Workflow | File | What it does |
+| --- | --- | --- |
+| `cases / 1 ingest` | `cases-1-ingest.yml` | Reads the community forum and opens an issue per post at `case:1-new` |
+| `cases / 2 read` | `cases-2-read.yml` | Writes a reading of each new case and moves it to `case:2-read` |
+| `cases / 3 answer` | `cases-3-answer.yml` | Posts each waiting reading back inside its own thread and marks `sent:discord-cases` |
+
+**`digest / …` — the roundups; both writers feed the one publisher**
+
+| Workflow | File | What it does |
+| --- | --- | --- |
+| `digest / 1 write daily` | `digest-1-write-daily.yml` | Writes the morning roundup over the day just gone into an issue |
+| `digest / 1 write weekly` | `digest-1-write-weekly.yml` | Writes the look back over the week, with trends, into an issue |
+| `digest / 2 publish` | `digest-2-publish.yml` | Posts the roundups waiting in the queue and marks `sent:discord-digest` |
+
+**`site / …` and `repo / …` — the archive, and the housekeeping**
+
+| Workflow | File | What it does |
+| --- | --- | --- |
+| `site / build and deploy` | `site-build.yml` | Renders the static archive and RSS, deploys to Pages, marks `sent:site` and `sent:rss` |
+| `repo / ci` | `repo-ci.yml` | Ruff and the offline test suite |
+| `repo / labels` | `repo-labels.yml` | Reconciles the label set with the config |
+| `repo / source health` | `repo-source-health.yml` | Asks every enabled source for a couple of articles and goes red on any that has none |
+| `repo / triage external issues` | `repo-triage.yml` | Takes an issue opened from outside the maintainer team out of the pipeline and closes it with a pointer to Discussions |
+
+### When each of them runs — `config/schedule.yaml`
+
+The tables above have no schedule column on purpose. GitHub reads a schedule from nowhere but
+the workflow file itself — no expressions, no `vars.`, no include — so left alone the grid
+exists only as eighteen literals and eighteen comment blocks that quietly stop being true.
+Instead `config/schedule.yaml` is the source of truth, and the `cron:` lines are generated from
+it into a marked block in each workflow, `why` comment and all:
+
+```bash
+make grid            # who runs how often, and which stages cost a model call
+```
+
+Edit that file, run `make schedule`, commit both. CI runs `squelch schedule --check`, which
+fails on three things: a workflow whose cron no longer matches the config, two stages landing
+on the same minute, and a workflow missing from the map. A hand edit inside a
+`# schedule:begin … # schedule:end` block is discarded by the next write, so the check is what
+stops one being merged.
+
+**How the clock is carved up.** Every minute of the hour is owned by exactly one workflow, so
+no two ever fire together and queue behind each other on the runner, and the offsets stagger
+the stages in order so each finds what the one before it just produced. Which stage gets how
+many of those minutes is decided by one thing: **whether it spends an LLM request.** `classify`,
+`summarize`, `cases / 2 read` and the digest writers are paced by the Gemini quota and keep the
+sparse slots — `model: true` in the config records it next to the cadence it justifies.
+Everything else — posting to a webhook, closing an issue, counting reactions, reading the forum
+— costs nothing but a runner minute, so it takes a whole residue class:
+
+```
+:x0  scrape, classify, summarize, publish-rejected, digest publish
+:x1  cases ingest                 :x3  feed publish
+:x2  cases read                   :x4  cases answer, close, rescue
+```
+
+`cases / 2 read` is the deliberate exception and the one worth understanding before copying the
+rule: it spends a model request on every pass and still owns a whole class. It is the entire
+wait between somebody posting in the forum and being answered, a person is sitting there waiting
+for it — unlike an article, which nobody knew existed — and the forum's volume is low enough
+that the quota goes on real posts rather than on empty passes. Paying for it cost `cases / 3
+answer` half its slots and `feed / 5 close` two thirds of its own, both free stages whose
+latency nobody feels.
+
+`feed / 1 scrape` is the mirror image: free, and deliberately still at twice an hour. `classify`
+is the gate, and scraping faster than the stage that consumes it only builds a deeper backlog of
+raw issues.
+
+(GitHub runs cron on a best-effort basis and delays it under load, so treat the minutes as
+intent rather than a guarantee — every stage is written to pick up whatever the last one left
+behind, and every one of them is idempotent.)
+
+### Running one by hand
+
+Every workflow carries `workflow_dispatch`, so **Actions → the workflow → Run workflow** always
+works. From a terminal the `Makefile` is shorter, and uses your own `gh` login rather than any
+repository secret:
+
+```bash
+make publish              # dispatch feed / 4 publish, then follow it to completion
+make daily INPUTS="-f days=3"   # a stage that takes inputs
+make feed                 # scrape → classify → summarize → publish → close, in order
+make runs                 # what has run lately
+make logs                 # failed steps of the most recent failed run
+make help                 # every target
+```
+
+`make feed` and `make cases` are the ones worth knowing: after changing `focus` or a prompt they
+walk one batch end to end instead of waiting out ninety minutes of cron.
+
+`site / build and deploy` renders the static archive, deploys it to GitHub Pages, and marks
+`sent:site` and `sent:rss` on what it rendered. It runs off `feed / 3 summarize`, not `feed / 4 publish`: **the
 archive, the feed and Discord are independent consumers of the same queue.** The page and the
 feed are counted apart because they genuinely differ — the feed holds only the newest entries
 and skips anything without a link. Marking happens at build time rather than after deployment,
@@ -131,7 +212,7 @@ where it does.
 Per-model counting also matters the day you drain one: both digest workflows take a `model`
 input on manual dispatch, so a roundup can still be written on a model that has budget left
 while the usual one is spent. Blank — which is what the scheduled runs pass — leaves
-`config/models.yaml` in charge. `digest-daily.yml` additionally takes a `days` input, for
+`config/models.yaml` in charge. `digest-1-write-daily.yml` additionally takes a `days` input, for
 catching up over a backlog after an outage.
 
 ### The digests, and what the feed channel is for now
@@ -170,7 +251,7 @@ weekly ever reads like a longer daily, the fault is in `prompts/digest-weekly.md
 code: the periods share one schema and one renderer on purpose.
 
 **A roundup is an issue too.** The build stage writes it into one labelled `digest:daily` or
-`digest:weekly` and stops there; `publish-digest.yml` posts it, records the message id on it and
+`digest:weekly` and stops there; `digest-2-publish.yml` posts it, records the message id on it and
 marks `sent:discord-digest`; `close-delivered` closes it. That split is what the rest of the
 pipeline already had and the digest did not:
 
@@ -271,15 +352,15 @@ text is the fallback for issues opened by hand, which have no write-up, and that
    squelch bootstrap-labels
    ```
 
-   After that it takes care of itself: `labels.yml` runs on every push that touches `config/**`,
+   After that it takes care of itself: `repo-labels.yml` runs on every push that touches `config/**`,
    which is exactly when a new source, topic or channel needs a label. The command is
-   idempotent, so running it by hand or from **Actions → labels → Run workflow** is always safe.
+   idempotent, so running it by hand or from **Actions → repo / labels → Run workflow** is always safe.
 
 5. **Enable GitHub Pages.** *Settings → Pages → Source → **GitHub Actions*** (not "Deploy from
-   a branch"). The archive appears after the first successful `pages.yml` run.
+   a branch"). The archive appears after the first successful `site / build and deploy` run.
 
 6. **Edit `config/feed.yaml` and `config/sources.yaml`** for your subject (see below) and run
-   `scrape.yml` by hand to see what comes out.
+   `feed / 1 scrape` by hand to see what comes out.
 
 ## Configuration
 
@@ -291,6 +372,7 @@ Everything you would sit down to change lives in `config/`, one file per thing:
 | `config/sources.yaml` | The source catalogue and nothing else |
 | `config/delivery.yaml` | Which channels an article must reach before it counts as published, and how much room it gets there |
 | `config/models.yaml` | Which Gemini model runs each stage |
+| `config/schedule.yaml` | When each workflow runs, and whether it is allowed to be frequent (`make schedule` puts it into `.github/workflows/`) |
 
 The prompts are the exception: they sit at the top level in `prompts/`, one
 markdown file per stage, because they are the text you reread and rewrite most
@@ -333,7 +415,7 @@ If the feed lets junk through, fix `focus` — not a threshold, and not the code
 ### `topics` — the bounds of the label set
 
 The LLM may only apply tags from this list, which keeps the set of `topic:*` labels in the
-repository finite. Pushing the new topic is enough — `labels.yml` creates the label with a
+repository finite. Pushing the new topic is enough — `repo / labels` creates the label with a
 proper colour and description before the classifier ever reaches for it.
 
 ### `emphasis` — how loud an article is in Discord

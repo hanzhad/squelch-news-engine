@@ -1,15 +1,18 @@
-name: pages
+name: site / build and deploy
 
 on:
   workflow_run:
-    # Rebuild after new articles land, rather than on a clock: publish is the
-    # only stage that changes what the archive shows.
-    workflows: ["summarize"]
+    # Rebuild after new articles land, rather than on a clock: summarize is the
+    # only stage that changes what the archive shows — the page and the feed
+    # read `status:3-ready` themselves, so they do not wait on Discord.
+    # This is a workflow *name*, not a filename: renaming that workflow without
+    # editing this line silently stops the archive rebuilding.
+    workflows: ["feed / 3 summarize"]
     types: [completed]
   workflow_dispatch:
 
 concurrency:
-  group: pages
+  group: site-build
   # A Pages deployment that is cancelled mid-flight can leave the live site on
   # a half-uploaded artifact, so queue instead of cancelling.
   cancel-in-progress: false
@@ -34,13 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install
-        run: pip install -e .
+      - uses: ./.github/actions/setup-squelch
 
       - name: Setup Pages
         uses: actions/configure-pages@v6

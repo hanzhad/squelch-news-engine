@@ -1,11 +1,13 @@
-name: rescue
+name: feed / rescue voted
 
 on:
   schedule:
-    # Off the five-minute grid like publish-rejected, and two minutes ahead of
-    # summarize (:50) on purpose: an article voted back gets its write-up on
-    # the very next tick instead of half an hour later.
-    - cron: "48 * * * *"
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # Every twenty minutes. Reaction counts ride along on the issue listing, so a vote costs no
+    # model call and has no reason to wait an hour. :19 lands one minute ahead of summarize, which
+    # is the pass a rescued article needs.
+    - cron: "19,39,59 * * * *"
+    # schedule:end
   workflow_dispatch:
 
 permissions:
@@ -13,7 +15,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: rescue
+  group: feed-rescue
   cancel-in-progress: false
 
 jobs:
@@ -25,13 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install
-        run: pip install -e .
+      - uses: ./.github/actions/setup-squelch
 
       - name: Rescue voted articles
         env:

@@ -1,10 +1,12 @@
-name: digest
+name: digest / 1 write weekly
 
 on:
   schedule:
-    # Monday morning UTC, once the week it summarises is actually over. Three
-    # hours after the daily, so the two never land in the channel together.
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # Monday morning UTC, once the week it summarises is actually over. Three hours after the daily,
+    # so the two never land in the channel together.
     - cron: "0 9 * * 1"
+    # schedule:end
   workflow_dispatch:
     inputs:
       model:
@@ -20,7 +22,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: digest
+  group: digest-write-weekly
   cancel-in-progress: false
 
 jobs:
@@ -30,16 +32,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install
-        run: pip install -e .
+      - uses: ./.github/actions/setup-squelch
 
       # Writes the roundup into an issue and stops there. No webhook is touched
-      # here: publish-digest.yml posts it, so a Discord outage costs a delay
+      # here: digest-2-publish.yml posts it, so a Discord outage costs a delay
       # rather than the whole week and one of the day's strong-model requests.
       - name: Weekly digest
         env:
