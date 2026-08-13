@@ -41,6 +41,13 @@ _HEADING = re.compile(r"^##[ \t]+(.+?)[ \t]*$", re.MULTILINE)
 CASE_OPEN = "POST BEGINS"
 CASE_CLOSE = "POST ENDS"
 
+# The same arrangement for the article block both roundups read. A digest never
+# sees a scraped page — it reads the write-up the feed published — but the page
+# is still where that write-up came from, and one sentence of it surviving stage
+# two is all it takes for a roundup to be reading somebody else's instruction.
+ARTICLES_OPEN = "ARTICLES BEGIN"
+ARTICLES_CLOSE = "ARTICLES END"
+
 
 class Prompt(BaseModel):
     system: str
@@ -158,25 +165,29 @@ def case_prompt(config: Config, issue: IssueRecord) -> str:
         title=issue.title,
         author=str(issue.meta.get("author") or "") or "unknown",
         tags=", ".join(tags) or "(none)",
-        body=_quoted(post_text(issue).strip()[: config.max_body_chars])
+        body=_quoted(post_text(issue).strip()[: config.max_body_chars], CASE_OPEN, CASE_CLOSE)
         or "(the post has no text)",
     )
 
 
-def _quoted(text: str) -> str:
-    """Stop a post from closing the markers it is quoted between.
+def _quoted(text: str, *markers: str) -> str:
+    """Stop quoted text from closing the markers it is quoted between.
 
-    The one input in this codebase written by somebody who might be trying.
-    Everything else the models read is an article; a forum post is a stranger's
-    text, and writing the closing marker followed by instructions is the obvious
-    way to try to step outside the quote and address the model directly. The
+    Writing the closing marker and following it with instructions is the obvious
+    way to try to step outside a quote and address the model directly. The
     system instruction already says the block is data — this keeps the block a
     block, which is what that instruction is about.
+
+    A forum post is the case that needs it most: a stranger's text, written by
+    somebody who might be trying. An article is second-hand by the time a digest
+    reads it — the write-up our own stage two produced, not the page — but that
+    only lengthens the path rather than closing it, and the same two lines cover
+    both.
 
     Mangled rather than removed, and visibly: a reading that quotes the line
     back should show what was actually written, not a silent deletion.
     """
-    for marker in (CASE_OPEN, CASE_CLOSE):
+    for marker in markers:
         text = text.replace(marker, marker.replace(" ", "_"))
     return text
 
@@ -188,7 +199,8 @@ def digest_prompt(
 
     The period chooses the file, not a branch in here: the daily and the weekly
     ask for different writing, and the difference belongs in prose that can be
-    rewritten without a deploy.
+    rewritten without a deploy. Both quote the articles between the same two
+    markers, which is why nothing about them is period-specific either.
     """
     entries: list[str] = []
     for issue in issues:
@@ -199,9 +211,9 @@ def digest_prompt(
         # hand, which have no write-up, and that is what the cap really bounds.
         gist = trim(" ".join((issue.summary or issue.text).split()), config.digest.summary_chars)
         entries += [
-            f"- Title: {issue.title}",
+            f"- Title: {_quoted(issue.title, ARTICLES_OPEN, ARTICLES_CLOSE)}",
             f"  URL: {issue.url or issue.html_url}",
-            f"  Summary: {gist or '(none)'}",
+            f"  Summary: {_quoted(gist, ARTICLES_OPEN, ARTICLES_CLOSE) or '(none)'}",
         ]
 
     return _fill(
