@@ -4,7 +4,7 @@ on:
   schedule:
     # Five minutes behind the ingest, so a post opened on one tick is read on
     # the next rather than waiting out a whole cycle.
-    - cron: "7,27,47 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
