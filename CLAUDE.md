@@ -9,7 +9,10 @@ GitHub Actions is the scheduler. Python 3.12+, src-layout, package `squelch`.
 src/squelch/
   core/        models, settings, config loader, URL canonicalization, dedup ledger, logging
   github/      REST client, issue CRUD + body render/parse, label bootstrap,
-               digests (a roundup stored as an issue of its own kind)
+               digests (a roundup stored as an issue of its own kind),
+               cases (a community forum post stored the same way)
+  forum/       the Discord bot: the only code here that *reads* a channel —
+               the community forum in, an issue per post, the reply back
   scrapers/    rss, web (Playwright), github repo search, text extraction, orchestration,
                source health check
   llm/         Gemini calls: classify, summarize, review, digest (daily and weekly)
@@ -91,6 +94,34 @@ summary could say what the channel never said. The `discord` channel still recei
 the project's own working view now, which is why `_Webhook` no longer falls back to its webhook
 and `DISCORD_DIGEST_WEBHOOK_URL` is required: a roundup posted into the feed channel would be
 published to nobody, and it would look like a successful run.
+
+The community forum is the one place the traffic runs the other way. `#tokens-overflow`
+is where people post their own experiments with AI tools, and `forum/bot.py` is the only
+code in this repository that reads a Discord channel — which is why it needs a bot token
+(`DISCORD_BOT_TOKEN`) rather than a webhook: a webhook posts and nothing else. The same
+bot sends the reply, so that channel deliberately has no webhook of its own; the answer
+comes from an account people can see and mute, and one credential covers both directions.
+The bot's permissions are the smallest set that works — view channels, read history, send
+messages in threads, embed links — so it cannot open a post or delete one.
+
+A case travels its own label axis, `case:1-new` → `case:2-read` → `case:3-answered`, and
+**never** carries a `status:` label. That is the whole thing keeping the forum out of the
+feed: classify, summarize, the site build and the window a roundup reads all query on
+`status:`, so they step straight over these. Three stages (`squelch ingest-cases` →
+`read-cases` → `answer-cases`) for the reason the digest is split the same way — the
+model's answer lands in the database first, so a dead connection costs a re-send rather
+than a re-write. `close_delivered` still owns the close, on a third queue
+(`consumes: cases`), and the answer stage never closes anything: a second reply under
+somebody's post is the one mistake this channel cannot take back.
+
+Nothing in that channel is filtered, and nothing is scored. Every post in the window gets
+an issue and a reply, thin ones included, and `CaseReading` has no verdict field on
+purpose — a forum where a bot grades your write-up is a forum people stop posting in.
+The reading also never checks a fact: it restates the claim, says what *would* settle the
+open parts, and names what to measure. That is a guarantee made in `prompts/case.md`, not
+by the model, and it is what stops a confident invented number going out under somebody
+else's name. Forum text is a stranger's text: it reaches the model wrapped in markers and
+is treated as data, never as instructions.
 
 The classifier's `score` decides how much room an article gets in Discord, through `emphasis`
 thresholds in `delivery.yaml` — `_weight` in `publishers/discord.py` maps it to a lead, a

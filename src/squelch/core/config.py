@@ -9,6 +9,7 @@ scrolling past the policy, and vice versa.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -16,6 +17,10 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 CONFIG_DIR = Path("config")
+# A channel link as Discord's own "Copy Link" gives it. Anchored, because the
+# failure mode this guards against is a *nearly* right URL — a message link with
+# a third id on the end would otherwise read its message id as the channel.
+FORUM_URL_RE = re.compile(r"^https://(?:\w+\.)?discord\.com/channels/(\d+)/(\d+)/?$")
 FEED_PATH = CONFIG_DIR / "feed.yaml"
 SOURCES_PATH = CONFIG_DIR / "sources.yaml"
 DELIVERY_PATH = CONFIG_DIR / "delivery.yaml"
@@ -107,8 +112,17 @@ class Channel(BaseModel):
     # instead shows what the classifier threw away, and never gates closing —
     # rejected issues are closed already. A ``digest`` channel consumes roundups,
     # which are issues of their own kind: same delivery bookkeeping, a queue no
-    # article is ever in, and so no part in closing one either.
-    consumes: Literal["ready", "rejected", "digest"] = "ready"
+    # article is ever in, and so no part in closing one either. A ``cases``
+    # channel is the one that also *reads* — see ``forum_url``.
+    consumes: Literal["ready", "rejected", "digest", "cases"] = "ready"
+    # The forum this channel reads from, as the link you would paste from
+    # Discord: https://discord.com/channels/<guild>/<channel>. Only a `cases`
+    # channel has one, and it is the single exception to "no address in this
+    # file" — it names a public channel rather than opening one, exactly like
+    # the tag ids below, and the credential that actually grants access is the
+    # bot token in the environment. Having it here is what lets the forum be
+    # pointed somewhere else without a deploy.
+    forum_url: str = ""
     # Routing, by the labels on the issue. ``only`` delivers just the articles
     # carrying at least one of the listed labels; ``skip`` delivers everything
     # except those. This is sectioning, not filtering: every article must still
@@ -156,6 +170,29 @@ class Channel(BaseModel):
             )
         return value
 
+    @field_validator("forum_url")
+    @classmethod
+    def _forum_url_is_a_channel_link(cls, value: str) -> str:
+        """Catch a mistyped link at load, not on the first cron tick.
+
+        Everything downstream reads two ids out of this string, so a link to a
+        message — or to the server — would otherwise send the bot looking for a
+        forum that does not exist, once an hour, in a log nobody is reading.
+        """
+        url = value.strip()
+        if url and not FORUM_URL_RE.match(url):
+            raise ValueError(
+                f"forum_url must be a channel link like "
+                f"https://discord.com/channels/<server>/<channel>, got {url[:60]!r}"
+            )
+        return url
+
+    @property
+    def forum_ids(self) -> tuple[str, str]:
+        """``(guild id, channel id)`` from ``forum_url``, or empty strings."""
+        match = FORUM_URL_RE.match(self.forum_url)
+        return (match.group(1), match.group(2)) if match else ("", "")
+
     def tag_ids(self, labels: set[str], limit: int) -> list[str]:
         """Tag ids for an article carrying ``labels``, in configured order.
 
@@ -183,6 +220,13 @@ class Channel(BaseModel):
             raise ValueError(
                 f"channel {self.id} sets `review` without `forum`; a review is posted "
                 "into the article's thread, and a text channel has none"
+            )
+        if self.consumes == "cases" and not self.forum_url:
+            # The one channel that reads. Without the link there is nothing to
+            # read, and the stage would run green over an empty forum forever.
+            raise ValueError(
+                f"channel {self.id} consumes cases but names no `forum_url`; "
+                "paste the channel's link from Discord"
             )
         return self
 
@@ -232,6 +276,17 @@ class Config(BaseModel):
         the same rule the rejected channel lives by.
         """
         return [c for c in self.channels if c.enabled and c.consumes == "digest"]
+
+    @property
+    def case_channels(self) -> list[Channel]:
+        """The enabled channels that read the community forum and answer in it.
+
+        Kept out of ``ready_channels`` for the same reason the roundups are: a
+        case is never queued for the article channels, so counting one here
+        would leave every ready article open waiting for a delivery that is
+        never coming.
+        """
+        return [c for c in self.channels if c.enabled and c.consumes == "cases"]
 
     @property
     def required_channels(self) -> list[str]:

@@ -46,6 +46,18 @@ summarize: gemini-3.5-flash-lite
 # of a review here is the prompt, not the parameter count.
 review: gemini-3.5-flash-lite
 
+# The reply to one community case, in the forum, under somebody's own post.
+#
+# On the lite model for the same reason as the rubric — capacity — and with one
+# extra consideration that pushes the same way: a case gets answered while the
+# person who wrote it is still around, so the stage runs every twenty minutes
+# rather than once a day. Twenty requests a day would be gone by lunchtime.
+#
+# Note what this stage is not asked to do: it never checks a fact, only names
+# what would check it. That is a prompt guarantee rather than a model one, and
+# it is why a stronger model would buy less here than it looks — see prompts/case.md.
+case: gemini-3.5-flash-lite
+
 # Both roundups, daily and weekly, and the only stage doing real synthesis:
 # turning eight articles into two trends is harder than restating one. Since the
 # per-article feed became our own working channel this is also the part anyone

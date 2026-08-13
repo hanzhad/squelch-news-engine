@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     discord_skills_webhook_url: str = Field(
         default="", validation_alias="DISCORD_SKILLS_WEBHOOK_URL"
     )
+    # The community forum's credential, and the only one that can *read* a
+    # channel: a webhook posts and nothing else, so the case pipeline needs a
+    # bot token or it needs to not exist. It also sends the replies, which is
+    # why there is no webhook for that channel — see forum/bot.py.
+    discord_bot_token: str = Field(default="", validation_alias="DISCORD_BOT_TOKEN")
 
     # --- throughput --------------------------------------------------------
     # GitHub throttles *content creation* (issues, comments) far below the
@@ -76,6 +81,16 @@ class Settings(BaseSettings):
     rescue_window_days: int = 14
     # 👍 reactions needed on a rejected issue before it is voted back in.
     rescue_min_reactions: int = 1
+
+    # How far back the forum is read, and how many posts one tick will take on.
+    # The window is what stops a first run — or a newly pointed forum_url —
+    # from opening an issue for every case ever posted; anything older than
+    # this was never going to get an answer worth having anyway. The batch caps
+    # exist for the same reason every other stage has them: leftover work waits
+    # for the next tick rather than being pushed through.
+    cases_window_days: int = 3
+    cases_max_new_issues: int = 10
+    cases_batch_size: int = 10
 
     # How far back the site build reads. Without a bound it would page through
     # every article ever published on every rebuild, and that cost grows with

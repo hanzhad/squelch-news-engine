@@ -1,0 +1,44 @@
+name: ingest-cases
+
+on:
+  schedule:
+    # The forum's own three slots, off the article grid: ingest here, read
+    # :07/:27/:47, answer :12/:32/:52, and the close pass at :15/:35/:55 picks
+    # the answered ones up. Worst case from posting to a reply is about twenty
+    # minutes, which is the point — somebody is waiting for it, unlike an
+    # article, which nobody knew existed.
+    - cron: "2,22,42 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ingest-cases
+  # Two ingests overlapping would both see the same post as new and open two
+  # issues for it — the dedup set is read once, at the start.
+  cancel-in-progress: false
+
+jobs:
+  ingest-cases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Read the forum
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The one credential here that can read a channel. A webhook cannot,
+          # which is the whole reason this stage needs a bot at all.
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+        run: squelch ingest-cases
