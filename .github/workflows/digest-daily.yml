@@ -11,6 +11,17 @@ on:
     # 06:00 UTC daily, over the day that just ended. Well clear of the weekly's
     # Monday slot, so a reader never gets both in the same minute.
     - cron: "0 6 * * *"
+    # The same run again, three hours later. Not a retry of the earlier job —
+    # nothing here reads its result — but a second attempt at the day, and it
+    # covers what an in-process retry cannot: a runner that died, a job that
+    # never started, an hour of GitHub being unwell. On a day that already has
+    # its roundup this costs one Actions minute and no model request at all:
+    # `run_digest` looks for a digest built today before it writes a prompt.
+    #
+    # It has to stay inside the same UTC day, because that guard is keyed on
+    # `datetime.now(UTC).date()`. A slot after midnight UTC would be a new day
+    # to it, and would write a second roundup rather than skip one.
+    - cron: "0 9 * * *"
   workflow_dispatch:
     inputs:
       model:

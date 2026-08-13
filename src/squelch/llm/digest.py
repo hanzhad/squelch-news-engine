@@ -90,7 +90,7 @@ def build_digest(
         return None
 
     model = settings.gemini_model or prompts.load_models().digest
-    client = GeminiClient(settings, model)
+    client = GeminiClient(settings, model, timeout=settings.digest_request_timeout)
     digest = client.structured(
         prompts.digest_prompt(config, period, window, ranked),
         Digest,

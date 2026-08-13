@@ -122,6 +122,29 @@ def test_each_period_is_written_from_its_own_prompt_file(
     assert "THE TRENDS" in seen[1]
 
 
+def test_the_roundup_asks_for_its_own_timeout(
+    settings: Settings, config: Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stage that reads sixty write-ups gets its own ceiling. On the shared
+    thirty seconds the call stalled, and the day's roundup was lost with it."""
+    asked: list[float | None] = []
+
+    class RecordingGemini:
+        def __init__(self, *args: object, timeout: float | None = None, **kwargs: object) -> None:
+            asked.append(timeout)
+
+        def structured(self, *args: object, **kwargs: object) -> Any:
+            return Digest(brief="The point.", summary="Prose.", trends=[], highlights=[])
+
+    monkeypatch.setattr(digest_module, "GeminiClient", RecordingGemini)
+
+    build_digest(  # type: ignore[arg-type]
+        settings, config, FakeStore([make_issue(1, "https://example.com/a")]), Period.DAILY
+    )
+
+    assert asked == [settings.digest_request_timeout]
+
+
 def test_a_failed_generation_raises_instead_of_looking_like_a_quiet_week(
     settings: Settings, config: Config, monkeypatch: pytest.MonkeyPatch
 ) -> None:

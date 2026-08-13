@@ -82,7 +82,7 @@ Each pipeline is its own workflow in `.github/workflows/`, triggered by cron and
 | Summarize | `summarize.yml` | Writes up the survivors on the full model and moves them to `status:3-ready` | `20,50 * * * *` |
 | Publish | `publish.yml` | Sends ready articles Discord has not seen to the webhook and marks `sent:discord` | `5,25,45 * * * *` |
 | Close | `close.yml` | Closes ready articles that every enabled channel has delivered | `15,35,55 * * * *` |
-| Digest (daily) | `digest-daily.yml` | Writes the morning roundup over the day just gone into an issue | `0 6 * * *` |
+| Digest (daily) | `digest-daily.yml` | Writes the morning roundup over the day just gone into an issue | `0 6 * * *`, `0 9 * * *` |
 | Digest (weekly) | `digest.yml` | Writes the look back over the week, with trends, into an issue | `0 9 * * 1` |
 | Publish digest | `publish-digest.yml` | Posts the roundups waiting in the queue and marks `sent:discord-digest` | `8 * * * *` |
 | Publish rejected | `publish-rejected.yml` | Posts recent rejections, with their reasons, to the rejected channel and marks `sent:discord-rejected` | `18 * * * *` |
@@ -102,6 +102,14 @@ case from post to answer is about twenty minutes. The offsets also stagger every
 order, so each finds what the one before it just produced. (GitHub runs cron on a best-effort basis and delays it under load,
 so treat the minutes as intent rather than a guarantee — every stage is written to pick up
 whatever the last one left behind.)
+
+The daily roundup is the exception to that last sentence, and has a second slot because of it.
+Every other stage runs again within the hour, so a failed tick costs minutes; the daily runs
+once, and a bad minute at the model costs the whole day — which is what happened on
+13 August 2026. So it fires again at 09:00, blind to whether the first one worked: `run_digest`
+looks for a roundup already built today before it writes a prompt, so on a normal day the
+second slot spends an Actions minute and no model request. It stays inside the same UTC day
+deliberately, because that is the day the guard is keyed on.
 
 There is also `pages.yml` — it renders the static archive, deploys it to GitHub Pages, and marks
 `sent:site` and `sent:rss` on what it rendered. It runs off `summarize`, not `publish`: **the
