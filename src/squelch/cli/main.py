@@ -196,6 +196,91 @@ def publish_rejected_cmd() -> None:
     log.info("publish-rejected done: %d article(s) posted", sent)
 
 
+@app.command("ingest-cases")
+def ingest_cases(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Read the forum and log what would be opened."),
+    ] = False,
+) -> None:
+    """Open an issue for every new post in the community forum.
+
+    The one stage that reads Discord, which is why it wants a bot token rather
+    than a webhook: a webhook can only post. Nothing here judges a post — every
+    case in the window that has no issue yet gets one.
+    """
+    settings = _boot()
+    config = _config()
+    _require(settings, "DISCORD_BOT_TOKEN")
+
+    from ..forum.bot import ForumError
+    from ..forum.ingest import run_ingest
+    from ..github.cases import CaseStore
+
+    channels = config.case_channels
+    if not channels:
+        # Not a failure: the forum is a section of the project that can be
+        # switched off in config, and a green run says so.
+        log.info("no case channel is enabled, nothing to ingest")
+        return
+
+    try:
+        if dry_run:
+            for channel in channels:
+                run_ingest(settings, config, None, channel, dry_run=True)
+            return
+        with _store(settings) as store:
+            cases = CaseStore(store.client)
+            created = sum(run_ingest(settings, config, cases, c) for c in channels)
+    except ForumError as exc:
+        # A bad token or a forum the bot cannot see is a setup problem, and it
+        # has to go red: an empty forum and an unreachable one look identical
+        # in the log otherwise.
+        log.error("forum: %s", exc)
+        raise typer.Exit(1) from exc
+    log.info("ingest done: %d case(s) opened", created)
+
+
+@app.command("read-cases")
+def read_cases() -> None:
+    """Write a reading of each new case: the claim, what would settle it, what to run."""
+    settings = _boot()
+    config = _config()
+    _require(settings, "GEMINI_API_KEY")
+
+    from ..github.cases import CaseStore
+    from ..llm.case import run_read_cases
+
+    with _store(settings) as store:
+        read = run_read_cases(settings, config, CaseStore(store.client))
+    log.info("read-cases done: %d case(s) read", read)
+
+
+@app.command("answer-cases")
+def answer_cases() -> None:
+    """Post the waiting readings back into the forum threads they belong to."""
+    settings = _boot()
+    config = _config()
+
+    if config.case_channels:
+        _require(settings, "DISCORD_BOT_TOKEN")
+
+    from ..forum.bot import ForumError
+    from ..github.cases import CaseStore
+    from ..publishers.discord import DiscordError, publish_cases
+
+    try:
+        with _store(settings) as store:
+            answered = publish_cases(settings, config, CaseStore(store.client))
+    except (DiscordError, ForumError) as exc:
+        # Both, because this stage talks to Discord through the bot: a refused
+        # token raises one, a payload Discord will not take raises the other,
+        # and neither deserves a traceback.
+        log.error("discord: %s", exc)
+        raise typer.Exit(1) from exc
+    log.info("answer-cases done: %d case(s) answered", answered)
+
+
 @app.command()
 def rescue() -> None:
     """Reopen rejected articles the community voted back with 👍 reactions.
@@ -225,6 +310,7 @@ def close_delivered() -> None:
     settings = _boot()
     config = _config()
 
+    from ..github.cases import CaseStore
     from ..github.digests import DigestStore
 
     with _store(settings) as store:
@@ -233,8 +319,14 @@ def close_delivered() -> None:
         # queue: the publisher never closes, so a channel dying between its
         # label and the close cannot strand one.
         posted = DigestStore(store.client).close_delivered(config.digest_channels)
+        # And the forum, on a third queue. Same rule again — the stage that
+        # posts a reply never closes the case it answered.
+        answered = CaseStore(store.client).close_delivered(config.case_channels)
     log.info(
-        "close done: %d article(s) published, %d roundup(s) closed", len(closed), len(posted)
+        "close done: %d article(s) published, %d roundup(s) closed, %d case(s) answered",
+        len(closed),
+        len(posted),
+        len(answered),
     )
 
 

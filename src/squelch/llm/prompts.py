@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from ..core.config import CONFIG_DIR, Config
 from ..core.models import Period
 from ..core.text import trim
+from ..github.cases import post_text
 from ..github.issues import IssueRecord
 
 PROMPTS_DIR = Path("prompts")
@@ -32,6 +33,13 @@ MODELS_PATH = CONFIG_DIR / "models.yaml"
 # A level-two heading opens a section; everything before the first one is the
 # file's own notes to whoever edits it, and never reaches the model.
 _HEADING = re.compile(r"^##[ \t]+(.+?)[ \t]*$", re.MULTILINE)
+
+# The markers a forum post is quoted between in prompts/case.md. Written here as
+# well because the post has to be checked against them before it is substituted
+# in — see _quoted. Change them in one place and the other stops matching, which
+# is why the prompt file names them in prose right above its own template.
+CASE_OPEN = "POST BEGINS"
+CASE_CLOSE = "POST ENDS"
 
 
 class Prompt(BaseModel):
@@ -44,6 +52,7 @@ class Models(BaseModel):
     summarize: str
     review: str
     digest: str
+    case: str
 
 
 def _sections(text: str) -> dict[str, str]:
@@ -129,6 +138,47 @@ def review_prompt(config: Config, issue: IssueRecord) -> str:
         url=issue.url or "unknown",
         body=issue.text.strip()[: config.max_body_chars] or "(no repository text was captured)",
     )
+
+
+def case_prompt(config: Config, issue: IssueRecord) -> str:
+    """The reply to one community case.
+
+    The only prompt here that is given no ``$focus``, and deliberately. That
+    policy decides what the *feed* publishes; a case was posted by a person who
+    wanted an answer, and handing the model a list of what this project files
+    under noise is how a reply starts explaining to somebody that their
+    experiment was off-topic.
+
+    The post is bounded by ``max_body_chars`` like everything else — a forum
+    post that runs to a novel is still one prompt.
+    """
+    tags = [str(tag) for tag in issue.meta.get("tags") or []]
+    return _fill(
+        load_prompt("case").template,
+        title=issue.title,
+        author=str(issue.meta.get("author") or "") or "unknown",
+        tags=", ".join(tags) or "(none)",
+        body=_quoted(post_text(issue).strip()[: config.max_body_chars])
+        or "(the post has no text)",
+    )
+
+
+def _quoted(text: str) -> str:
+    """Stop a post from closing the markers it is quoted between.
+
+    The one input in this codebase written by somebody who might be trying.
+    Everything else the models read is an article; a forum post is a stranger's
+    text, and writing the closing marker followed by instructions is the obvious
+    way to try to step outside the quote and address the model directly. The
+    system instruction already says the block is data — this keeps the block a
+    block, which is what that instruction is about.
+
+    Mangled rather than removed, and visibly: a reading that quotes the line
+    back should show what was actually written, not a silent deletion.
+    """
+    for marker in (CASE_OPEN, CASE_CLOSE):
+        text = text.replace(marker, marker.replace(" ", "_"))
+    return text
 
 
 def digest_prompt(

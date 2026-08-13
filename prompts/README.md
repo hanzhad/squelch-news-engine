@@ -10,8 +10,15 @@ writing, not like a diff on a YAML block scalar.
 | [classify.md](classify.md) | The judge: does this article get a slot at all | every scraped item |
 | [summarize.md](summarize.md) | The writer: the blurb that stands in for the article | every article that survived |
 | [review.md](review.md) | The rubric: a skill collection read skill by skill | articles routed to a channel with `review: true` |
+| [case.md](case.md) | The reply under somebody's own post in the community forum | every case posted |
 | [digest-daily.md](digest-daily.md) | The morning roundup over the day just gone | once a day |
 | [digest-weekly.md](digest-weekly.md) | The look back over the whole week | once a week |
+
+`case.md` is the odd one out and the one to read carefully before editing: it is
+the only prompt here that answers a person rather than describing an article,
+and the only one whose input is text a stranger wrote. It is given no `$focus`
+on purpose — that policy decides what the feed publishes, and a reply is not a
+verdict on whether somebody's experiment deserved to exist.
 
 The two digests share a Discord channel and a response schema, and differ only
 in what they are told — which is the point of the split: the daily reports, the

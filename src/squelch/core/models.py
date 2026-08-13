@@ -173,6 +173,128 @@ class SkillsReview(BaseModel):
     )
 
 
+class CaseStatus(StrEnum):
+    """Lifecycle of a community case — somebody's own experiment, posted in the forum.
+
+    A separate axis from ``Status`` on purpose, and that is the whole design.
+    A case is not an article: it was written by a person who wanted an answer,
+    not scraped, and it must never be classified, summarised, rendered on the
+    site or fed to a roundup. Carrying no ``status:`` label at all is what makes
+    every one of those queries step over it — the same trick the digests and the
+    ledger use.
+
+    There is no rejected state here either. The classifier's job is to keep the
+    feed clean of noise nobody chose; a case was posted deliberately by a member
+    of the community, and answering only the cases we happen to like is how a
+    forum stops being one.
+    """
+
+    NEW = "case:1-new"
+    # The reading is written and stored, waiting for its reply to be posted.
+    # Separate from answered for the same reason a digest is written before it
+    # is sent: the model's answer survives a dead webhook and can be read — or
+    # edited — before it goes back to the person who asked.
+    READ = "case:2-read"
+    ANSWERED = "case:3-answered"
+
+
+ALL_CASE_STATUSES = tuple(CaseStatus)
+
+
+class CasePost(BaseModel):
+    """One forum post, as the bot found it. The thread is the unit, not the message.
+
+    Only the opening message is read. Everything under it is the discussion the
+    reply is meant to start, and a bot that answered the whole thread would be
+    answering itself a tick later.
+    """
+
+    thread_id: str
+    title: str
+    body: str = ""
+    author: str = ""
+    url: str = ""
+    posted_at: datetime | None = None
+    # Whatever the poster tagged it with, by name rather than by Discord id: the
+    # names are what the reading is allowed to see, and the ids mean nothing to
+    # a model.
+    tags: list[str] = Field(default_factory=list)
+
+    @field_validator("title")
+    @classmethod
+    def _clean_title(cls, value: str) -> str:
+        collapsed = " ".join(value.split())
+        if not collapsed:
+            # Discord will not create an unnamed forum post, so this is only
+            # reachable through a malformed payload.
+            raise ValueError("a forum post must have a name")
+        return collapsed[:250]
+
+    @field_validator("thread_id")
+    @classmethod
+    def _snowflake(cls, value: str) -> str:
+        digits = value.strip()
+        if not digits.isdigit():
+            raise ValueError(f"not a Discord id: {value!r}")
+        return digits
+
+    @property
+    def uid(self) -> str:
+        """What makes this post the same post on the next run.
+
+        The thread id, which Discord never reuses — not a hash of the text. A
+        post edited after it was read must not come back as a second case, and
+        an edit is exactly what people do when they remember a number.
+        """
+        return self.thread_id
+
+
+class CaseReading(BaseModel):
+    """What the bot has to say about one case.
+
+    Deliberately four fields rather than a verdict. A case is somebody's own
+    measurement, usually partial, often about numbers the model cannot check
+    from here — and a single block of prose asked to respond to that reliably
+    turns into either applause or a confident correction invented on the spot.
+    Splitting the answer is what stops both: the claim is restated in the
+    poster's own terms, what could settle it is named as *work*, and what the
+    post is taking on faith is named without being called wrong.
+
+    There is no score, no verdict and no "quality" field, and there must not be
+    one. Nothing here decides whether a post stays: the reply is a reply, and a
+    forum where a bot rates your work is a forum people stop posting in.
+    """
+
+    claim: str = Field(
+        description=(
+            "What this post reports, restated in one or two plain sentences, in the "
+            "language the post was written in. The finding, not the topic."
+        )
+    )
+    checkable: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The parts that could actually be settled, each with the measurement or "
+            "source that would settle it. Empty if the post is pure experience report."
+        ),
+    )
+    assumed: list[str] = Field(
+        default_factory=list,
+        description=(
+            "What the post takes for granted or generalises past its own evidence. "
+            "Stated as a gap in what was shown, never as an accusation, and empty "
+            "when the post stayed inside what it measured."
+        ),
+    )
+    measure: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Concrete next steps somebody could run themselves to take this further — "
+            "the experiment, not the advice."
+        ),
+    )
+
+
 class Period(StrEnum):
     """How far back one roundup looks.
 
