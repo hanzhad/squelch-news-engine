@@ -101,6 +101,12 @@ class Settings(BaseSettings):
 
     # --- misc --------------------------------------------------------------
     request_timeout: float = 30.0
+    # The roundup's own ceiling. Every other stage sends one article and gets a
+    # paragraph; a roundup sends up to sixty write-ups and thinks before it
+    # answers, so the shared thirty seconds is not a slow call — it is the
+    # normal one. It cost a day's digest on 2026-08-13, and the client-side
+    # timeout that followed was not even retried.
+    digest_request_timeout: float = 120.0
     # Bounded by GitHub's 65536-character issue body, not by disk.
     seen_max_entries: int = 3500
 

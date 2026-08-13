@@ -166,6 +166,15 @@ raw issues.
 intent rather than a guarantee — every stage is written to pick up whatever the last one left
 behind, and every one of them is idempotent.)
 
+`digest / 1 write daily` is the one stage that gets a second slot for that reason. Everything
+else runs again within the hour, so a bad minute at the API costs it minutes; the daily runs
+once, and a bad minute costs the whole day — which is what happened on 13 August 2026, when a
+client-side timeout at 06:00 left the channel without a roundup. So it fires again at 08:00,
+reading nothing about the first attempt: `run_digest` looks for a roundup already built today
+before it writes a prompt, so on a normal day the second slot spends a runner minute and no
+model request. It sits inside the same UTC day because that guard is keyed on one, and off
+09:00 because that hour belongs to the weekly.
+
 ### Running one by hand
 
 Every workflow carries `workflow_dispatch`, so **Actions → the workflow → Run workflow** always
