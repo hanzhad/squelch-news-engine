@@ -71,6 +71,13 @@ class FakeWebhook:
     def __exit__(self, *exc: object) -> None:
         return None
 
+    def message_url(self, channel_id: str, message_id: str) -> str:
+        # The real one asks the webhook for its guild once; here the shape is
+        # all that matters, and "" stands in for a guild we could not read.
+        if not (channel_id and message_id):
+            return ""
+        return f"https://discord.com/channels/1/{channel_id}/{message_id}"
+
     def send(self, payload: dict[str, Any], thread_id: str = "") -> Sent:
         FakeWebhook.sent.append((self.url, payload))
         FakeWebhook.threads.append(thread_id)

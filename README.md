@@ -131,9 +131,37 @@ catching up over a backlog after an outage.
 ### The digests, and what the feed channel is for now
 
 Two roundups share one Discord channel: a daily every morning over the day just gone, and on
-Mondays a weekly look back once the week is actually over. They are one code path and two
-prompt files — the daily reports, the weekly synthesises — because a reader who gets both on a
-Monday must not feel they got the same message twice. Which one a message is, is in its footer.
+Mondays a weekly look back once the week is actually over. They are one code path and two prompt
+files, because a reader who gets both on a Monday must not feel they got the same message twice.
+
+Each one is four parts, and the layering is the design:
+
+1. **The stretch it covers**, as the title — `Daily digest · 11 August 2026`, `Weekly digest ·
+   5–11 August 2026`. You already know it is a roundup; what you need first is which one.
+2. **The brief**: one or two sentences in bold. The whole point, for somebody too tired to read
+   further.
+3. **The detail**: connected prose grouping what belongs together and ending on what it adds up
+   to — the one thing a reader cannot get from the titles.
+4. **The articles**, as bare titles and links. No caption per item: what a release means is said
+   once, above.
+
+The split into two blocks was arrived at the hard way. One paragraph asked to be both skimmable
+and synthesised produced neither: written plainly it came back a sentence per article, written
+analytically it came back prose nobody finishes. Two fields, two jobs, two sets of rules — and
+the brief is too short to decay into a list.
+
+**A highlight links into the feed channel, not to the publisher.** The article-by-article stream
+is public and is where discussion gathers, so a roundup is the way in rather than a replacement:
+each link lands on that channel's own post about the article. Anything the feed has not carried
+yet keeps the publisher's URL. Which channel that is, is `link_channel` in `feed.yaml`; set it
+empty to link straight to the articles. The links are resolved from what the delivery pass
+recorded — the model returns the article's own URL, which the existing highlight check validates,
+and it is never in a position to write a Discord link.
+
+The weekly additionally carries **trends** — threads visible across more than one day, which is
+the one thing a single day cannot have and therefore what keeps the two from reading alike. If a
+weekly ever reads like a longer daily, the fault is in `prompts/digest-weekly.md`, not in the
+code: the periods share one schema and one renderer on purpose.
 
 **A roundup is an issue too.** The build stage writes it into one labelled `digest:daily` or
 `digest:weekly` and stops there; `publish-digest.yml` posts it, records the message id on it and
@@ -155,23 +183,23 @@ A digest issue carries no `status:` label, which is what keeps it inert: classif
 site build and the window the *next* digest reads all step straight over it. The precedent is the
 dedup ledger — a non-article issue, same database, label of its own.
 
-That channel is the one to point people at. The article-by-article `discord` channel is still
-there and still gets every survivor as it lands, but it is the project's own view of the
-pipeline working rather than something to read start to finish. Nothing in the pipeline changed
-for it: an article still has to reach it before it counts as published.
+Both channels are public and they do different jobs: the stream is where an article lands and
+where the argument about it happens, the roundup is what you open if you were away. An article
+still has to reach the stream before it counts as published.
 
-The consequence in code is that **nothing falls back to the feed's webhook any more**.
+**Nothing falls back to the feed's webhook.**
 `DISCORD_DIGEST_WEBHOOK_URL` is required rather than optional, and a digest run with it unset
-goes red instead of quietly posting the roundup where nobody reads it.
+goes red instead of posting the roundup into a stream that would bury it within the hour.
 
 What a roundup gets to read is `digest` in `config/feed.yaml`, and it is two knobs that only
 mean anything together:
 
 ```yaml
 digest:
-  max_articles: 60     # the size the roundup aims for
-  min_score: 0         # what it takes to get in past that size — 0 keeps everything
-  summary_chars: 1000  # each article's published write-up, cut to this
+  max_articles: 60      # the size the roundup aims for
+  min_score: 0          # what it takes to get in past that size — 0 keeps everything
+  link_channel: discord # whose post a highlight links to; empty links to the article
+  summary_chars: 1000   # each article's published write-up, cut to this
 ```
 
 Articles are ranked by the classifier's score, and everything down to `max_articles` is in. Past

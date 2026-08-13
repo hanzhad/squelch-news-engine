@@ -73,6 +73,12 @@ max_body_chars: 8000
 digest:
   max_articles: 60
   min_score: 0
+  # Where a highlight's link lands. The roundup is the way into the
+  # article-by-article channel rather than a replacement for it, so a link goes
+  # to that channel's own post about the article — with whatever discussion has
+  # gathered under it — and only falls back to the publisher's page for what the
+  # feed has not carried yet. Set it empty to link straight to the articles.
+  link_channel: discord
   # Each article reaches the model as its published write-up, cut to this at a
   # word boundary. Stage two writes two to four sentences, so this leaves a
   # normal summary whole; it is also what bounds an issue opened by hand, which

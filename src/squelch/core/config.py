@@ -78,6 +78,12 @@ class DigestPolicy(BaseModel):
 
     max_articles: int = Field(default=60, ge=1)
     min_score: int = Field(default=0, ge=0, le=10)
+    # Which channel's post a highlight links to. The roundup is an index into
+    # the article-by-article feed rather than a replacement for it, so a link
+    # lands on the message about that article and the discussion under it.
+    # Falls back to the article's own URL for anything that channel has not
+    # carried yet, and empty here links straight to the articles throughout.
+    link_channel: str = "discord"
     # What each article contributes to the prompt: its write-up, cut to this.
     # Stage two writes two to four sentences, so this is sized to leave a normal
     # summary whole and to bound the fallback — an issue opened by hand has no

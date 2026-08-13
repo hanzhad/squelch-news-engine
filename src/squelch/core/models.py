@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from typing import Literal
 from urllib.parse import urlsplit
@@ -201,27 +201,71 @@ class Period(StrEnum):
         """What the roundup calls itself in the channel and in the logs."""
         return f"{self.value} digest"
 
+    def window_label(self, start: date, end: date) -> str:
+        """The stretch this roundup covers, as a reader would say it.
+
+        A daily is named after the day the news happened on — its window runs
+        from yesterday morning to this one, and nobody calls that "the 11th to
+        the 12th". A weekly gets the range, written short where it can be:
+        "5–11 August 2026", but "29 July – 4 August 2026" across a month.
+        """
+        if self is Period.DAILY:
+            return f"{start.day} {start:%B %Y}"
+        if (start.year, start.month) == (end.year, end.month):
+            return f"{start.day}–{end.day} {end:%B %Y}"
+        if start.year == end.year:
+            return f"{start.day} {start:%B} – {end.day} {end:%B %Y}"
+        return f"{start.day} {start:%B %Y} – {end.day} {end:%B %Y}"
+
 
 class DigestEntry(BaseModel):
-    """One line of a digest."""
+    """One line of a digest: a headline and where to read it.
+
+    Deliberately carries no per-article commentary. What each release means is
+    the body's job, said once across everything; repeating it item by item
+    turned the roundup back into a list of captions, which is the thing the
+    body exists to replace.
+    """
 
     title: str
     url: str
-    takeaway: str
 
 
 class Digest(BaseModel):
     """A roundup produced from published articles. Same shape either period.
 
+    Read in layers, and the layering is the design. One paragraph asked to be
+    both skimmable and synthesised produced neither: made plain it turned into
+    a sentence per article, made analytical it turned into prose nobody
+    finishes. So ``brief`` is what somebody exhausted gets in two sentences,
+    ``summary`` is the block underneath for whoever went on, and each is judged
+    by its own rules.
+
+    There is no headline field. It named the archived issue and nothing else,
+    and once ``brief`` existed the two were the same sentence written twice —
+    a field the model fills only because it is there, which is exactly how
+    trends started leaking into the daily.
+
     The descriptions travel with the request as the response schema, so they
-    say nothing about a week: the rules that differ between the daily and the
-    weekly are in the prompt files, where they can be rewritten without a
-    deploy. Trends are allowed to come back empty on purpose — a quiet day with
-    two invented themes is worse than a quiet day that says so.
+    say nothing about a day or a week: the rules that differ between the two
+    live in the prompt files, where they can be rewritten without a deploy.
     """
 
-    headline: str = Field(description="One sentence naming what this stretch was actually about")
+    brief: str = Field(
+        description=(
+            "One or two sentences, in the plainest words available: the whole point, "
+            "for somebody too tired to read further. Never a list."
+        )
+    )
+    summary: str = Field(
+        description=(
+            "The detailed block, for a reader who did go on: connected prose grouping "
+            "what belongs together and ending with what it all adds up to. Never a "
+            "restatement of the article titles one by one."
+        )
+    )
     trends: list[str] = Field(
-        description="Threads visible across more than one article. None, if there are none."
+        default_factory=list,
+        description="Threads visible across more than one article. None, if there are none.",
     )
     highlights: list[DigestEntry] = Field(description="Up to 8 most notable articles")

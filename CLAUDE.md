@@ -63,8 +63,16 @@ var and deliberately no fallback to another channel's.
 
 The digests are the public face, not the per-article stream. Two roundups — daily and weekly —
 share one Discord channel through `DISCORD_DIGEST_WEBHOOK_URL`; `core.models.Period` carries the
-window, the prompt file (`prompts/digest-<period>.md`) and the label, and everything else is one
-code path.
+window, the prompt file (`prompts/digest-<period>.md`), the label and how the window is named, and
+everything else is one code path. A roundup is a title naming the stretch it covers, a `brief` of one or
+two sentences for somebody too tired to read on, a `summary` block under it, and the articles as
+bare links. Two prose fields rather than one because a single paragraph asked to be both skimmable
+and synthesised produced neither. `DigestEntry` carries no per-article commentary on purpose, and
+there is no headline field — `brief` subsumed it, and a field the model fills only because it
+exists is how trends started leaking into the daily. Only the weekly asks for `trends`, and that
+is the one thing keeping the two from reading alike. Highlights link into the channel named by
+`link_channel`, resolved from the `message_url` the delivery pass records — never asked of the
+model, which must not be in a position to write a Discord URL.
 
 A roundup is an issue, in `github/digests.py` — same database, same body format, its own module
 the way `ledger.py` is. It carries `digest:<period>` and **never** a `status:` label: that is the

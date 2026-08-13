@@ -107,7 +107,7 @@ def test_each_period_is_written_from_its_own_prompt_file(
 
         def structured(self, prompt: str, *args: object, **kwargs: object) -> Any:
             seen.append(prompt)
-            return Digest(headline="h", trends=[], highlights=[])
+            return Digest(brief="The point.", summary="Prose.", trends=[], highlights=[])
 
     monkeypatch.setattr(digest_module, "GeminiClient", RecordingGemini)
     store = FakeStore([make_issue(1, "https://example.com/a")])
@@ -115,8 +115,11 @@ def test_each_period_is_written_from_its_own_prompt_file(
     build_digest(settings, config, store, Period.DAILY)  # type: ignore[arg-type]
     build_digest(settings, config, store, Period.WEEKLY)  # type: ignore[arg-type]
 
-    assert "at most five of them" in seen[0]
-    assert "at most eight of them" in seen[1]
+    # Structural markers rather than counts: the wording of these files is
+    # rewritten often, but only the weekly ever asks for trends.
+    assert "THE BRIEF" in seen[0] and "THE DETAIL" in seen[0]
+    assert "THE TRENDS" not in seen[0]
+    assert "THE TRENDS" in seen[1]
 
 
 def test_a_failed_generation_raises_instead_of_looking_like_a_quiet_week(
@@ -137,9 +140,10 @@ def test_a_successful_digest_comes_back_whole(
     stub_client(
         monkeypatch,
         Digest(
-            headline="A week of releases",
+            brief="A week of releases.",
             trends=["Everyone shipped an agent"],
-            highlights=[DigestEntry(title="A", takeaway="t", url="https://example.com/a")],
+            summary="What the week added up to.",
+            highlights=[DigestEntry(title="A", url="https://example.com/a")],
         ),
     )
     store = FakeStore([make_issue(1, "https://example.com/a")])
@@ -147,7 +151,7 @@ def test_a_successful_digest_comes_back_whole(
     result = build_digest(settings, config, store, Period.WEEKLY)  # type: ignore[arg-type]
 
     assert result is not None
-    assert result.digest.headline == "A week of releases"
+    assert result.digest.brief == "A week of releases."
     assert [h.url for h in result.digest.highlights] == ["https://example.com/a"]
     # The counts travel with it: they are stored on the issue and shown in its
     # body, which is how you tell a thin roundup from a thin week.
@@ -219,11 +223,12 @@ def test_a_catch_up_run_cannot_blow_up_one_request() -> None:
 def test_highlights_the_model_invented_are_dropped() -> None:
     # The links come back from a language model; only the ones we fed it are real.
     digest = Digest(
-        headline="h",
+        brief="The point.",
+        summary="Prose.",
         trends=[],
         highlights=[
-            DigestEntry(title="real", takeaway="t", url="https://example.com/a"),
-            DigestEntry(title="invented", takeaway="t", url="https://example.com/never-supplied"),
+            DigestEntry(title="real", url="https://example.com/a"),
+            DigestEntry(title="invented", url="https://example.com/never-supplied"),
         ],
     )
 
