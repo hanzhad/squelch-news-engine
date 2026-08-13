@@ -6,10 +6,18 @@
 # you try a new one without a commit.
 #
 # The free tier meters requests per day, per model, and the ceilings differ by
-# an order of magnitude: the lite models allow 500 a day, gemini-3.6-flash
-# allows 20. Requests — not tokens. We peak around 5% of the token allowance
+# an order of magnitude: the lite models allow 500 a day, the full Flash models
+# allow 20. Requests — not tokens. We peak around 5% of the token allowance
 # and still ran out of day, so which model a stage sits on is a capacity
 # decision before it is a quality one.
+#
+# One warning about the override above: GEMINI_MODEL is read by summarize, case
+# and digest alike, so setting it anywhere those stages share — a local .env, a
+# repository variable — moves all three. Pointing it at a full Flash model puts
+# the case stage, which runs every twenty minutes, under a 20-a-day ceiling. Per
+# stage it is safe only where one stage owns the environment: the digest
+# workflows pass their `model` dispatch input as GEMINI_MODEL in their own job,
+# which is the way to try a model on one roundup without touching this file.
 
 # Stage one judges every scraped article against the policy. Google's own model
 # card names this workload — "high-volume, latency-sensitive tasks like
@@ -66,4 +74,12 @@ case: gemini-3.5-flash-lite
 # The capacity question settles just as easily: one request a day, two on the
 # Monday the weekly joins it, against a budget of twenty. The daily costs a
 # twentieth of the ceiling and leaves the manual-dispatch escape hatch intact.
-digest: gemini-3.6-flash
+#
+# Moved from 3.6 to 3.7 Flash on the day 3.7 shipped, and the move is free
+# rather than earned: same 20-a-day ceiling, so nothing about the budget above
+# changes. Not measured against 3.6 on our own roundups — 3.7 is pitched at code
+# and agent work, which is not what this stage does, so treat the quality of it
+# as an open question. `squelch digest` writes into the issue and
+# `squelch publish-digest` sends it, so a bad roundup is visible before anyone
+# reads it; if the prose turns out worse, this line goes back to gemini-3.6-flash.
+digest: gemini-3.7-flash

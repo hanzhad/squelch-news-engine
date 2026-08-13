@@ -123,7 +123,7 @@ throttles bulk content creation, and the free Gemini tier meters requests tightl
 
 That quota is counted **per model**, and it counts requests rather than tokens — we peak at
 about 5% of the token allowance and can still run out of day. The ceilings differ by an order of
-magnitude: 500 requests a day on the lite models against 20 on `gemini-3.6-flash`. So which
+magnitude: 500 requests a day on the lite models against 20 on the full Flash models. So which
 model a stage sits on is a capacity decision before it is a quality one, and both high-volume
 stages belong on a lite model. See the comments in `config/models.yaml` for why each stage sits
 where it does.
