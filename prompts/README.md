@@ -16,14 +16,32 @@ writing, not like a diff on a YAML block scalar.
 
 `case.md` is the odd one out and the one to read carefully before editing: it is
 the only prompt here that answers a person rather than describing an article,
-and the only one whose input is text a stranger wrote. It is given no `$focus`
-on purpose — that policy decides what the feed publishes, and a reply is not a
-verdict on whether somebody's experiment deserved to exist.
+and its input is text a stranger wrote knowing a model would read it. It is
+given no `$focus` on purpose — that policy decides what the feed publishes, and
+a reply is not a verdict on whether somebody's experiment deserved to exist.
+
+Its quoting discipline is not unique to it, though. Both roundups wrap their
+article block in `ARTICLES BEGIN` / `ARTICLES END` and say in the system
+instruction that what is inside is material, never instructions. An article is
+second-hand by then — a roundup reads the write-up the feed published, not the
+page — but stage two read the page, and a sentence aimed at a model can survive
+being summarised. `_quoted` in `src/squelch/llm/prompts.py` mangles a marker
+that appears inside the block, visibly rather than silently, so the pair the
+prompt promises stays a pair.
 
 The two digests share a Discord channel and a response schema, and differ only
 in what they are told — which is the point of the split: the daily reports, the
 weekly synthesises, and a reader who gets both must not feel they got the same
-message twice.
+message twice. Sharing a schema has one standing hazard: a field description
+travels with every request, so a rule written there reaches both roundups and
+outranks the prose that contradicts it. Nothing about a period goes in the
+schema — not a count, not a cap.
+
+What the two do share on purpose is the `HOUSE STYLE` block, which is the same
+text in both files and is compared by the tests. It holds what a reader would
+notice in either roundup — sentence length, named subjects, the rule about
+numbers, the banned nouns. Anything that is true of one period only belongs in
+that period's own section, a few lines above it.
 
 Which model runs each stage is [config/models.yaml](../config/models.yaml);
 what the feed is about is [config/feed.yaml](../config/feed.yaml). Neither
@@ -57,5 +75,6 @@ the answer.
 Changing a prompt changes what the feed publishes, with no code change and no
 deploy — the next scheduled run picks up whatever is on `main`. `tests/test_prompts.py`
 runs offline against these exact files and is the only guard: it checks that
-every stage still parses, still quotes `$focus`, and leaves no placeholder
-unfilled. It cannot tell you the writing got worse.
+every stage still parses, still quotes `$focus`, leaves no placeholder unfilled,
+keeps the two `HOUSE STYLE` blocks identical, and keeps quoted text from closing
+the block it sits in. It cannot tell you the writing got worse.

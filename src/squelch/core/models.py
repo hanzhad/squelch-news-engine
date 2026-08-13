@@ -371,6 +371,10 @@ class Digest(BaseModel):
     The descriptions travel with the request as the response schema, so they
     say nothing about a day or a week: the rules that differ between the two
     live in the prompt files, where they can be rewritten without a deploy.
+    ``highlights`` used to say "up to 8", which is the weekly's cap — the daily
+    asks for six, so the model was handed both numbers in one request and the
+    schema quietly outranked the prose. Counts belong in the prompt files with
+    everything else that differs; a number here is the bug, not a detail of it.
     """
 
     brief: str = Field(
@@ -390,4 +394,9 @@ class Digest(BaseModel):
         default_factory=list,
         description="Threads visible across more than one article. None, if there are none.",
     )
-    highlights: list[DigestEntry] = Field(description="Up to 8 most notable articles")
+    highlights: list[DigestEntry] = Field(
+        description=(
+            "The articles worth opening, most important first, each copied from the "
+            "list given. How many belongs to the roundup's own instructions."
+        )
+    )
