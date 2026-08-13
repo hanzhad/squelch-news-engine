@@ -146,15 +146,21 @@ Everything else — posting to a webhook, closing an issue, counting reactions, 
 
 ```
 :x0  scrape, classify, summarize, publish-rejected, digest publish
-:x1  cases ingest          :x3  feed publish
-:x2  cases read, close, rescue    :x4  cases answer
+:x1  cases ingest                 :x3  feed publish
+:x2  cases read                   :x4  cases answer, close, rescue
 ```
 
-Two consequences worth knowing. `feed / 1 scrape` is free too but deliberately stays at twice
-an hour: `classify` is the gate, and scraping faster than the stage that consumes it only
-builds a deeper backlog of raw issues. And the whole wait between somebody posting in the forum
-and getting a reply is `cases / 2 read` — ingest and answer are effectively immediate — so that
-is the only cron to touch if the forum feels slow, and it is the expensive one.
+`cases / 2 read` is the deliberate exception and the one worth understanding before copying the
+rule: it spends a model request on every pass and still owns a whole class. It is the entire
+wait between somebody posting in the forum and being answered, a person is sitting there waiting
+for it — unlike an article, which nobody knew existed — and the forum's volume is low enough
+that the quota goes on real posts rather than on empty passes. Paying for it cost `cases / 3
+answer` half its slots and `feed / 5 close` two thirds of its own, both free stages whose
+latency nobody feels.
+
+`feed / 1 scrape` is the mirror image: free, and deliberately still at twice an hour. `classify`
+is the gate, and scraping faster than the stage that consumes it only builds a deeper backlog of
+raw issues.
 
 (GitHub runs cron on a best-effort basis and delays it under load, so treat the minutes as
 intent rather than a guarantee — every stage is written to pick up whatever the last one left

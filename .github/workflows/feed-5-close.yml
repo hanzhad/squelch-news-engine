@@ -3,10 +3,12 @@ name: feed / 5 close delivered
 on:
   schedule:
     # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
-    # Every ten minutes, on slots the model stages leave free. Costs nobody a request, and is
-    # idempotent by construction — a pass with nothing fully delivered reads labels and stops — so
-    # the cadence is only about how long an issue should sit open after its last channel took it.
-    - cron: "2,12,22,32,42,52 * * * *"
+    # Three times an hour, sharing the :x4 class with answer and rescue. Costs nobody a request and
+    # is idempotent by construction — a pass with nothing fully delivered reads labels and stops —
+    # so the only thing this cadence decides is how long an issue sits open after its last channel
+    # took it, which is the cheapest thing on the grid to be slow about. It gave its faster slots to
+    # `cases-2-read`.
+    - cron: "9,29,49 * * * *"
     # schedule:end
   workflow_dispatch:
 

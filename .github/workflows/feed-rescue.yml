@@ -4,9 +4,9 @@ on:
   schedule:
     # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
     # Every twenty minutes. Reaction counts ride along on the issue listing, so a vote costs no
-    # model call and has no reason to wait an hour. :17 lands three minutes ahead of summarize,
-    # which is the pass a rescued article needs.
-    - cron: "17,37,57 * * * *"
+    # model call and has no reason to wait an hour. :19 lands one minute ahead of summarize, which
+    # is the pass a rescued article needs.
+    - cron: "19,39,59 * * * *"
     # schedule:end
   workflow_dispatch:
 

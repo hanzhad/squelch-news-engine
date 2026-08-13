@@ -22,12 +22,18 @@
 #
 #   :x0  scrape, classify, summarize, publish-rejected, digest publish
 #   :x1  cases ingest
-#   :x2  cases read, close, rescue
+#   :x2  cases read
 #   :x3  feed publish
-#   :x4  cases answer
+#   :x4  cases answer, close, rescue
 #
 # Before making anything more frequent, check `model:`. If it is true, you are
 # spending quota, not runner minutes, and the answer is probably no.
+#
+# `cases-2-read` is the deliberate exception, and worth understanding before
+# copying it: it spends a model request and still owns a whole class, because
+# it is the entire wait between somebody posting in the forum and getting an
+# answer. Buying that back cost `cases-3-answer` half its slots and `feed-5-close`
+# two thirds of its own — both free stages whose latency nobody feels.
 #
 # THREE WAYS TO WRITE A STAGE
 #
@@ -78,13 +84,15 @@ stages:
       minutes rather than twenty.
 
   feed-5-close:
-    every: 10
-    offset: 2
+    every: 20
+    offset: 9
     why: >-
-      Every ten minutes, on slots the model stages leave free. Costs nobody a
-      request, and is idempotent by construction — a pass with nothing fully
-      delivered reads labels and stops — so the cadence is only about how long
-      an issue should sit open after its last channel took it.
+      Three times an hour, sharing the :x4 class with answer and rescue. Costs
+      nobody a request and is idempotent by construction — a pass with nothing
+      fully delivered reads labels and stops — so the only thing this cadence
+      decides is how long an issue sits open after its last channel took it,
+      which is the cheapest thing on the grid to be slow about. It gave its
+      faster slots to `cases-2-read`.
 
   feed-publish-rejected:
     every: 20
@@ -96,11 +104,11 @@ stages:
 
   feed-rescue:
     every: 20
-    offset: 17
+    offset: 19
     why: >-
       Every twenty minutes. Reaction counts ride along on the issue listing, so
-      a vote costs no model call and has no reason to wait an hour. :17 lands
-      three minutes ahead of summarize, which is the pass a rescued article needs.
+      a vote costs no model call and has no reason to wait an hour. :19 lands
+      one minute ahead of summarize, which is the pass a rescued article needs.
 
   # -- cases: a forum post, from the channel back to its own thread -----------
 
@@ -113,23 +121,27 @@ stages:
       leaves the whole waiting time to `cases-2-read`.
 
   cases-2-read:
-    every: 20
-    offset: 7
+    every: 5
+    offset: 2
     model: true
     why: >-
-      The one forum stage that spends a model request, so it keeps a sparse slot
-      while ingest and answer run every five minutes around it. That makes this
-      the entire wait between a post and its reply — raise it here if the forum
-      ever feels slow, and nowhere else.
+      Every five minutes, on its own residue class — the one stage here that
+      spends a model request and still runs as often as anything free. It is
+      the entire wait between somebody posting and getting a reply, and a person
+      is sitting there waiting for it, unlike an article nobody knew existed.
+      The deliberate exception to pacing model stages sparsely: it buys latency
+      where latency is felt, and the forum's volume is low enough that the quota
+      is spent on posts rather than on empty passes.
 
   cases-3-answer:
-    every: 5
+    every: 10
     offset: 4
     why: >-
-      Every five minutes. Posting a reading that is already written reaches no
+      Every ten minutes. Posting a reading that is already written reaches no
       model, so once `cases-2-read` has spent its request there is nothing left
-      to ration — the answer goes out on the next tick and the close pass picks
-      it up after.
+      to ration — but the reply is already only ten minutes behind the reading,
+      and the spare slots buy `cases-2-read` its own class, which is where the
+      real wait was.
 
   # -- digest: the roundups; both writers feed the one publisher --------------
 
