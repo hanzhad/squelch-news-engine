@@ -22,10 +22,12 @@ import httpx
 
 from ..core.config import Config, Emphasis
 from ..core.log import get_logger
-from ..core.models import Digest, DigestEntry, Period, Status
+from ..core.models import CaseReading, Digest, DigestEntry, Period, Status
 from ..core.settings import Settings
 from ..core.text import first_sentence, trim
 from ..core.throttle import paced
+from ..forum.bot import BotClient
+from ..github.cases import CaseStore, reading_from_meta
 from ..github.digests import DigestStore, digest_from_meta, period_of
 from ..github.issues import IssueRecord, IssueStore
 
@@ -123,6 +125,31 @@ SKILL_MARKS = {"thin": "*thin* — ", "unclear": "*unclear* — "}
 # it reaches Discord's limit, and the repository is one click away.
 MAX_REVIEWED_SKILLS = 15
 REVIEW_DISCLAIMER = "squelch · read from the repository's files, nothing was executed"
+
+
+# -- the forum's reply -------------------------------------------------------
+#
+# The community forum, where the traffic runs the other way: people post their
+# own experiments and the bot answers inside the thread. Must match the channel
+# id in delivery.yaml; the Discord channel it happens to be called is named
+# there too, and renaming it changes nothing here.
+CASES_CHANNEL = "discord-cases"
+# No verdict colour, unlike the rubric. There is no verdict: a reading is not a
+# score, and a palette that went green-to-grey would announce one before anybody
+# had read a word.
+CASE_HEADINGS = (
+    ("checkable", "What would settle it"),
+    ("assumed", "Taken on faith"),
+    ("measure", "Worth measuring"),
+)
+# English chrome around a reply that is written in the poster's own language.
+# Deliberate: these three phrases are the same three every time, they are what
+# makes the shape of a reply recognisable at a glance, and the rest of the
+# server — channel names, tags, the posting rules — is English already.
+CASE_DISCLAIMER = "squelch · a reading of your post, not a verdict — argue with it"
+# A reply is one message. Past this it stops being something anybody reads under
+# their own post, and the numbers are in the thread anyway.
+MAX_CASE_LINES = 6
 
 
 class DiscordError(RuntimeError):
@@ -571,6 +598,41 @@ def _rejected_embed(issue: IssueRecord) -> dict[str, Any]:
     return embed
 
 
+def _case_embed(reading: CaseReading) -> dict[str, Any] | None:
+    """One reading, as the reply that goes under somebody's post.
+
+    Prose first, then at most three short lists, in the order somebody would
+    want them: what they found, what would settle the open part, what the post
+    is assuming, what to run next. A list that came back empty is simply absent
+    — an empty heading reads as a section the bot failed to fill, and the
+    schema allows empty on purpose.
+
+    Returns None when there is nothing to say at all, which the queue treats as
+    a case still waiting rather than one answered with silence.
+    """
+    claim = " ".join(reading.claim.split())
+    if not claim:
+        return None
+
+    lines = [f"**{claim}**"]
+    for field, heading in CASE_HEADINGS:
+        items = [
+            " ".join(str(item).split())
+            for item in getattr(reading, field)
+            if str(item).strip()
+        ]
+        if not items:
+            continue
+        lines += ["", f"**{heading}**"]
+        lines += [f"- {item}" for item in items[:MAX_CASE_LINES]]
+
+    return {
+        "description": trim("\n".join(lines), DESCRIPTION_LIMIT),
+        "color": ACCENT_COLOR,
+        "footer": {"text": CASE_DISCLAIMER},
+    }
+
+
 def _payload(
     embeds: list[dict[str, Any]],
     thread_name: str = "",
@@ -911,6 +973,85 @@ def publish_digests(settings: Settings, config: Config, store: DigestStore) -> i
         with _Webhook(settings, settings.discord_digest_webhook_url) as webhook:
             total += _deliver_digests(webhook, store, pending, channel.id, settings)
     return total
+
+
+def publish_cases(settings: Settings, config: Config, store: CaseStore) -> int:
+    """Post each waiting reading into the thread it was written about.
+
+    Through the bot rather than a webhook, because this channel is read as well
+    as written and one credential is enough — see ``forum/bot.py``. What it
+    costs is that a reply is a plain message in an existing thread: no thread
+    name, no tags, nothing that opens a post. That is the right shape anyway.
+    The bot must never be able to start a conversation in there.
+
+    Nothing here closes an issue, and one failed reply never stops the batch.
+    """
+    channels = config.case_channels
+    if not channels:
+        log.info("no case channel is enabled in delivery.yaml, nothing to do")
+        return 0
+
+    total = 0
+    with BotClient(settings) as bot:
+        for channel in channels:
+            pending = store.list_pending(channel.id, limit=settings.publish_batch_size)
+            if not pending:
+                log.info("nothing to answer for %s", channel.id)
+                continue
+            total += _deliver_cases(bot, store, pending, channel.id, settings)
+    return total
+
+
+def _deliver_cases(
+    bot: BotClient,
+    store: CaseStore,
+    issues: list[IssueRecord],
+    channel: str,
+    settings: Settings,
+) -> int:
+    answered = 0
+    for issue in paced(issues, settings.publish_delay_seconds):
+        record = issue.delivery(channel)
+        if record:
+            # Already answered by a run that died before its label landed.
+            # Posting again would put a second reply under somebody's post,
+            # which is the one mistake this channel cannot take back.
+            details = {k: v for k, v in record.items() if k != "at"}
+            try:
+                store.record_delivery(issue, channel, details)
+            except Exception as exc:  # noqa: BLE001 - retried on the next run
+                log.error("#%d is already answered but will not relabel: %s", issue.number, exc)
+            continue
+
+        reading = reading_from_meta(issue.meta)
+        embed = _case_embed(reading) if reading else None
+        thread_id = str(issue.meta.get("thread_id") or "")
+        if embed is None or not thread_id:
+            # Left in the queue rather than skipped quietly: an unreadable
+            # block or a lost thread id is something to fix on the issue, and
+            # the person is still waiting either way.
+            log.error("#%d holds no readable reading or no thread, skipping it", issue.number)
+            continue
+
+        try:
+            message_id = bot.reply(thread_id, _payload([embed]))
+        except Exception as exc:  # noqa: BLE001 - one case must not stop the batch
+            log.error("could not answer #%d: %s", issue.number, exc)
+            continue
+        answered += 1
+
+        try:
+            store.record_delivery(issue, channel, {"message_id": message_id})
+        except Exception as exc:  # noqa: BLE001 - the reply is out either way
+            log.error(
+                "#%d answered as message %s but was not recorded: %s",
+                issue.number,
+                message_id or "?",
+                exc,
+            )
+        else:
+            log.info("answered case #%d as message %s", issue.number, message_id)
+    return answered
 
 
 def _deliver_digests(

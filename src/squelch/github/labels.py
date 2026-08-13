@@ -13,7 +13,7 @@ from urllib.parse import quote
 
 from ..core.config import Config
 from ..core.log import get_logger
-from ..core.models import Period, Status
+from ..core.models import CaseStatus, Period, Status
 from .client import GitHubClient
 from .digests import digest_label
 from .issues import SENT_PREFIX
@@ -37,6 +37,13 @@ STATUS_LABELS = [
 ]
 
 
+CASE_LABELS = [
+    LabelSpec(CaseStatus.NEW.value, "c2e0c6", "Posted in the forum, waiting to be read"),
+    LabelSpec(CaseStatus.READ.value, "0e8a16", "Read, waiting for its reply to be posted"),
+    LabelSpec(CaseStatus.ANSWERED.value, "1d76db", "Answered in the thread"),
+]
+
+
 def label_specs(config: Config) -> list[LabelSpec]:
     specs = list(STATUS_LABELS)
     specs.append(LabelSpec(LEDGER_LABEL, "c5def5", "Bookkeeping: the scraper's dedup ledger"))
@@ -47,6 +54,10 @@ def label_specs(config: Config) -> list[LabelSpec]:
         LabelSpec(digest_label(period), "5319e7", f"A {period.label} waiting to be posted")
         for period in Period
     ]
+    # The community forum's own axis, and never `status:` either — a case is
+    # somebody's experiment, not an article, and every article query has to step
+    # over it.
+    specs += CASE_LABELS
     # Every channel, not only the enabled ones: turning a channel off must not
     # make the labels it already wrote unreadable.
     specs += [

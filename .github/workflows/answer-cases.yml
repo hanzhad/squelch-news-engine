@@ -1,0 +1,41 @@
+name: answer-cases
+
+on:
+  schedule:
+    - cron: "12,32,52 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: answer-cases
+  # Never cancel. The window between "the reply is in the thread" and "the
+  # issue says so" is exactly where a cancellation would put a second reply
+  # under somebody's post — the one mistake this channel cannot take back.
+  cancel-in-progress: false
+
+jobs:
+  answer-cases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Answer in the forum
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The same bot that read the forum posts the reply, so the answer
+          # comes from an account people can see, mute and argue with rather
+          # than from an anonymous webhook.
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+        run: squelch answer-cases

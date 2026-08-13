@@ -124,3 +124,28 @@ channels:
   - id: discord-digest
     enabled: true
     consumes: digest
+
+  # The community forum — #tokens-overflow in the same server — and the only
+  # channel the pipeline reads as well as writes. People post their own
+  # experiments there; the ingest opens an issue per post, a second stage writes
+  # a reading of it, and a third posts that reading back inside the thread.
+  #
+  # `consumes: cases` is a queue no article is ever in, exactly like the
+  # roundups: it never counts towards closing an article, and a broken forum
+  # holds up nothing but the forum.
+  #
+  # `forum_url` is the one address in this file, and it is here rather than in
+  # the environment for the same reason the tag ids are: it names a public
+  # channel and unlocks nothing. What actually grants access is the bot token,
+  # DISCORD_BOT_TOKEN — the only credential here that can read a channel, since
+  # a webhook cannot. Point it at another channel and the pipeline follows;
+  # renaming the channel in Discord changes nothing, since this is its id.
+  #
+  # Nothing in this channel is filtered. Every post in the window gets an issue
+  # and an answer, including the thin ones — a forum where the bot picks which
+  # of your write-ups deserve a reply is a forum people stop posting in.
+  - id: discord-cases
+    enabled: true
+    consumes: cases
+    forum: true
+    forum_url: https://discord.com/channels/1536359042316898404/1537215873452998826

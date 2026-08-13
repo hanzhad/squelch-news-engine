@@ -87,13 +87,19 @@ Each pipeline is its own workflow in `.github/workflows/`, triggered by cron and
 | Publish digest | `publish-digest.yml` | Posts the roundups waiting in the queue and marks `sent:discord-digest` | `8 * * * *` |
 | Publish rejected | `publish-rejected.yml` | Posts recent rejections, with their reasons, to the rejected channel and marks `sent:discord-rejected` | `18 * * * *` |
 | Rescue | `rescue.yml` | Reopens rejected issues with enough 👍 reactions as `status:2-relevant` | `48 * * * *` |
+| Ingest cases | `ingest-cases.yml` | Reads the community forum and opens an issue per post at `case:1-new` | `2,22,42 * * * *` |
+| Read cases | `read-cases.yml` | Writes a reading of each new case and moves it to `case:2-read` | `7,27,47 * * * *` |
+| Answer cases | `answer-cases.yml` | Posts each waiting reading back inside its own thread and marks `sent:discord-cases` | `12,32,52 * * * *` |
 | Labels | `labels.yml` | Reconciles the label set with the config | on push to `config/**` |
 | Sources | `sources.yml` | Asks every enabled source for a couple of articles and goes red on any that has none | `17 6 * * 1`, and on PRs touching `sources.yaml` |
 
 Every stage on the hot path owns its own five-minute slot, so no two ever fire on the same
-minute and queue behind each other on the runner. The two community stages run hourly and sit
-off that grid — all twelve slots are taken, and neither is in a race with anything. The offsets also stagger them in order, so each finds what the
-one before it just produced. (GitHub runs cron on a best-effort basis and delays it under load,
+minute and queue behind each other on the runner. Everything else sits off that grid — all
+twelve slots are taken. The two community stages that answer to nobody in particular run
+hourly (`publish-rejected`, `rescue`); the forum's three run every twenty minutes, two
+minutes past the grid, because a person posted a case and is waiting for the reply — worst
+case from post to answer is about twenty minutes. The offsets also stagger every stage in
+order, so each finds what the one before it just produced. (GitHub runs cron on a best-effort basis and delays it under load,
 so treat the minutes as intent rather than a guarantee — every stage is written to pick up
 whatever the last one left behind.)
 
@@ -240,6 +246,14 @@ text is the fallback for issues opened by hand, which have no write-up, and that
    - `DISCORD_SKILLS_WEBHOOK_URL` — optional. A webhook for the skills rubric — articles
      routed by label to their own channel (see below). No fallback either; unset, disable
      the `discord-skills` channel in `config/delivery.yaml` or `publish` runs go red.
+
+   - `DISCORD_BOT_TOKEN` — optional, and the only credential here that can **read** a
+     channel: the community forum needs a bot, because a webhook can only post. The same
+     token sends the replies, so that channel has no webhook of its own. Create an
+     application at the Discord developer portal, add a bot, enable *Message Content
+     Intent*, and invite it with exactly four permissions — view channels, read message
+     history, send messages in threads, embed links. Unset, disable the `discord-cases`
+     channel in `config/delivery.yaml` or the three `*-cases` runs go red.
 
    `GITHUB_TOKEN` and `GITHUB_REPOSITORY` are supplied by Actions itself; do not create them.
 
@@ -510,6 +524,55 @@ classifier chose, and the original rejection reason stays in the metadata as `re
 Votes count for `RESCUE_WINDOW_DAYS` (fourteen by default); after that the article would need a
 label flipped by hand, which anyone with write access can still do.
 
+### The community forum, and the only channel that is read
+
+Everything above sends. `#tokens-overflow` receives: it is where people post their own
+experiments with AI tools — what they tried, what happened, and how they know — and the bot
+replies once inside each post. That is the one part of this repository that reads a Discord
+channel, and it is why there is a bot token at all: a webhook cannot list a channel, and no
+configuration makes it.
+
+```yaml
+  - id: discord-cases
+    enabled: true
+    consumes: cases      # a queue no article is ever in
+    forum: true
+    forum_url: https://discord.com/channels/<server>/<channel>
+```
+
+`forum_url` is the one address in `delivery.yaml`, and it is there rather than in the
+environment for the same reason the forum tag ids are: it names a public channel and unlocks
+nothing. What grants access is `DISCORD_BOT_TOKEN`. Renaming the channel in Discord changes
+nothing — the link carries its id.
+
+A case runs its own label axis, `case:1-new` → `case:2-read` → `case:3-answered`, and never
+carries a `status:` label. That is deliberate and load-bearing: classify, summarize, the site
+build and the window a roundup reads all query on `status:`, so a forum post cannot leak into
+the feed, the archive or a digest. Three stages, for the reason the digests are also split —
+`ingest-cases` opens the issue, `read-cases` writes the reading into it, `answer-cases` posts
+that reading into the thread. The model's answer is in the database before anything is sent,
+so a Discord outage costs a re-send rather than a re-write, and the reading can be read — or
+edited — on the issue before it goes back to the person who wrote the post. `close-delivered`
+owns the close, on a third queue that never gates an article.
+
+What the bot says is fixed by `prompts/case.md` and by the shape of `CaseReading`: the claim
+restated in the poster's own language, what would settle the open parts, what the post is
+taking on faith, and what to measure next. There is no verdict field and no score, and there
+must not be one — a forum where a bot grades your write-up is a forum people stop posting in.
+It also never checks a fact: where a claim needs a number the model cannot see, it names the
+measurement instead of inventing the answer. Forum text is a stranger's text, so it reaches
+the model wrapped in markers and is treated as data rather than as instructions.
+
+Nothing in that channel is filtered. Every post inside `CASES_WINDOW_DAYS` (three by default)
+gets an issue and an answer, thin ones included. The window is what stops a first run on a
+forum with history from opening a year of issues and answering conversations that ended
+months ago.
+
+One thing to say out loud in the channel's own rules, because the people posting cannot see
+it otherwise: every post is copied into a public issue with its author's Discord name on it.
+That is what makes the bot's reading auditable, and it is not what somebody assumes when they
+write a paragraph in a chat window.
+
 ### Adding an RSS source
 
 ```yaml
@@ -616,6 +679,9 @@ CLI commands (the console script from `pyproject.toml` is `squelch`):
 | `squelch publish` | send ready articles to Discord |
 | `squelch publish-rejected` | post recent rejections, with reasons, to the rejected channel |
 | `squelch rescue` | reopen rejected articles the community voted back with 👍 |
+| `squelch ingest-cases` | read the community forum and open an issue per post |
+| `squelch read-cases` | write a reading of each new case |
+| `squelch answer-cases` | post the waiting readings back into their threads |
 | `squelch close-delivered` | close what every enabled channel has delivered |
 | `squelch digest --period daily\|weekly` | write one roundup and store it as an issue |
 | `squelch publish-digest` | post the roundups waiting in the queue |
@@ -641,11 +707,12 @@ GITHUB_REPOSITORY=owner/repo
 GEMINI_API_KEY=...
 DISCORD_WEBHOOK_URL=...
 DISCORD_DIGEST_WEBHOOK_URL=...   # required by `squelch digest`; no fallback to the one above
+DISCORD_BOT_TOKEN=...            # reads the community forum and answers in it
 ```
 
 The same file overrides the thresholds in `src/squelch/core/settings.py` — for example
 `SCRAPE_MAX_NEW_ISSUES`, `LLM_DELAY_SECONDS`, `SEEN_MAX_ENTRIES`, `GEMINI_MODEL`,
-`CLASSIFY_BODY_CHARS`, `FEED_WINDOW_DAYS`, `DIGEST_FORUM`. Secret values are never committed: only their names live in the
+`CLASSIFY_BODY_CHARS`, `FEED_WINDOW_DAYS`, `DIGEST_FORUM`, `CASES_WINDOW_DAYS`. Secret values are never committed: only their names live in the
 repository.
 
 ## Known limitations
