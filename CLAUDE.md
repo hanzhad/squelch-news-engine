@@ -7,7 +7,8 @@ GitHub Actions is the scheduler. Python 3.12+, src-layout, package `squelch`.
 
 ```
 src/squelch/
-  core/        models, settings, config loader, URL canonicalization, dedup ledger, logging
+  core/        models, settings, config loader, URL canonicalization, dedup ledger, logging,
+               schedule (the cron grid, generated into .github/workflows/)
   github/      REST client, issue CRUD + body render/parse, label bootstrap,
                digests (a roundup stored as an issue of its own kind),
                cases (a community forum post stored the same way)
@@ -19,8 +20,13 @@ src/squelch/
   publishers/  Discord webhook
   site/        static archive rendering (templates live in top-level site/templates/)
   cli/         typer app; console script is `squelch`
-config/               feed.yaml (policy), sources.yaml, delivery.yaml, models.yaml
+config/               feed.yaml (policy), sources.yaml, delivery.yaml, models.yaml,
+                      schedule.yaml (when every workflow runs)
                       the dedup ledger is an issue (label meta:ledger), not a file
+Makefile              `make schedule` regenerates the cron grid; `make publish` and friends
+                      dispatch one workflow through `gh`; `make help` lists them
+.github/actions/      setup-squelch — Python and the install, called by every workflow after
+                      its own checkout; the one place the Python version is pinned
 prompts/              <stage>.md — one markdown file per LLM stage, `## System` +
                       `## Template` taken verbatim; see prompts/README.md
 tests/                offline only — fixtures + fake HTTP clients, never the real network
@@ -141,6 +147,16 @@ prompt and decides what survives; `topics` bounds the set of `topic:*` labels th
 apply. Tuning behaviour means editing that file — do not hard-code source lists, keyword
 filters or score thresholds in Python. Adding a topic or source means re-running
 `squelch bootstrap-labels`.
+
+Timing is config too. `config/schedule.yaml` is the source of truth for every cron in
+`.github/workflows/`; the `cron:` lines are generated into a `# schedule:begin … # schedule:end`
+block by `squelch schedule --write` (`make schedule`), and `--check` runs in CI. **Never edit a
+`cron:` line directly** — the next write discards it. The grid's one rule is that every minute of
+the hour is owned by exactly one workflow, and how many minutes a stage gets depends on whether
+it spends an LLM request: `model: true` stages are paced by the Gemini quota and keep sparse
+slots, everything else is free and takes a whole residue class. The `why` in that file is not a
+comment for the reader of the config — it is written verbatim into the workflow, which is what
+stops the rationale and the cron from ever disagreeing.
 
 The wording the models actually see is the other half of that, and lives one level up in
 `prompts/<stage>.md` — top-level because it is prose and gets rewritten more than anything

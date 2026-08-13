@@ -1,8 +1,13 @@
-name: answer-cases
+name: cases / 3 answer
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # Every five minutes. Posting a reading that is already written reaches no model, so once
+    # `cases-2-read` has spent its request there is nothing left to ration — the answer goes out on
+    # the next tick and the close pass picks it up after.
+    - cron: "4,9,14,19,24,29,34,39,44,49,54,59 * * * *"
+    # schedule:end
   workflow_dispatch:
 
 permissions:
@@ -10,7 +15,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: answer-cases
+  group: cases-answer
   # Never cancel. The window between "the reply is in the thread" and "the
   # issue says so" is exactly where a cancellation would put a second reply
   # under somebody's post — the one mistake this channel cannot take back.
@@ -23,13 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install
-        run: pip install -e .
+      - uses: ./.github/actions/setup-squelch
 
       - name: Answer in the forum
         env:

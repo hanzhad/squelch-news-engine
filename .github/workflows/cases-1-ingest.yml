@@ -1,13 +1,13 @@
-name: ingest-cases
+name: cases / 1 ingest
 
 on:
   schedule:
-    # The forum's own three slots, off the article grid: ingest here, read
-    # :07/:27/:47, answer :12/:32/:52, and the close pass at :15/:35/:55 picks
-    # the answered ones up. Worst case from posting to a reply is about twenty
-    # minutes, which is the point — somebody is waiting for it, unlike an
-    # article, which nobody knew existed.
-    - cron: "2,22,42 * * * *"
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # Every five minutes. Reading the forum costs a Discord connection and nothing else, so this
+    # gets a post into the database almost at once and leaves the whole waiting time to
+    # `cases-2-read`.
+    - cron: "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"
+    # schedule:end
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: ingest-cases
+  group: cases-ingest
   # Two ingests overlapping would both see the same post as new and open two
   # issues for it — the dedup set is read once, at the start.
   cancel-in-progress: false
@@ -27,13 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install
-        run: pip install -e .
+      - uses: ./.github/actions/setup-squelch
 
       - name: Read the forum
         env:

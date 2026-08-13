@@ -859,7 +859,7 @@ def publish_ready(settings: Settings, config: Config, store: IssueStore) -> int:
     total = 0
     for channel in config.ready_channels:
         if channel.id not in webhooks:
-            # The site and the feed deliver through pages.yml, not through us.
+            # The site and the feed deliver through site-build.yml, not through us.
             continue
         url, env_name = webhooks[channel.id]
         if not url:

@@ -1,11 +1,13 @@
-name: publish-rejected
+name: feed / publish rejected
 
 on:
   schedule:
-    # All twelve five-minute slots belong to the hot path, so this sits off
-    # that grid on purpose. Hourly is plenty: rejections trickle out of
-    # classify (:10/:40), and this channel is a window, not a delivery race.
-    - cron: "18 * * * *"
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # Three times an hour. Rejections only trickle out of classify, so this is no delivery race, but
+    # a webhook run is free and hourly was a cadence chosen when every slot was spoken for rather
+    # than one this needed.
+    - cron: "5,25,45 * * * *"
+    # schedule:end
   workflow_dispatch:
 
 permissions:
@@ -13,7 +15,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: publish-rejected
+  group: feed-publish-rejected
   # Same reasoning as publish: the window between "posted to Discord" and
   # "labelled sent" is exactly where a cancellation would cause a double post.
   cancel-in-progress: false
@@ -25,13 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install
-        run: pip install -e .
+      - uses: ./.github/actions/setup-squelch
 
       - name: Post rejected
         env:

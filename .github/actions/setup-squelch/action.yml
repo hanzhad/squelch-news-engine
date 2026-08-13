@@ -1,0 +1,45 @@
+name: Set up squelch
+description: Python 3.12 with the package installed, the same way in every workflow.
+
+# Seventeen workflows opened with the same three steps, which meant seventeen
+# places to edit when the Python version moved or an action needed a new major.
+# Checkout stays out of this on purpose: a local action cannot be read before
+# the repository it lives in has been checked out, so every workflow still does
+# that itself and then calls this.
+
+inputs:
+  extras:
+    description: >-
+      Optional extras, written as they appear after the package name — "[dev]"
+      for the test suite, "[web]" for the Playwright scrapers. Empty installs
+      the runtime dependencies alone, which is what a scheduled stage wants.
+    required: false
+    default: ""
+  playwright:
+    description: >-
+      Install the Chromium build too. Only the source sweep needs it, and it is
+      slow enough to be worth asking for rather than getting by default.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+        # No requirements.txt here; the action falls back to pyproject.toml.
+        cache: pip
+
+    - name: Install
+      shell: bash
+      # Quoted because the extras brackets are shell globbing characters, and
+      # an unquoted `.[dev]` expands to nothing in a directory with no matching
+      # file — pip would then install the current directory without the extras
+      # and the failure would land much later, as a missing pytest.
+      run: pip install -e ".${{ inputs.extras }}"
+
+    - name: Install Chromium
+      if: inputs.playwright == 'true'
+      shell: bash
+      run: playwright install --with-deps chromium

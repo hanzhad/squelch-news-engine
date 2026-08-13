@@ -1,0 +1,39 @@
+name: feed / 4 publish
+
+on:
+  schedule:
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # Every five minutes, on its own residue class. Only talks to a webhook, so there is nothing to
+    # ration: a ready article reaches Discord in five minutes rather than twenty.
+    - cron: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"
+    # schedule:end
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: feed-publish
+  # Never cancel: the window between "posted to Discord" and "labelled
+  # published" is exactly where a cancellation would cause a double post.
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Longer than the five-minute cadence on purpose. A non-cancelling
+    # concurrency group holds at most one run pending and drops the ticks
+    # behind it, so a slow run costs delivery a tick — never a second post.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-squelch
+
+      - name: Publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_SKILLS_WEBHOOK_URL: ${{ secrets.DISCORD_SKILLS_WEBHOOK_URL }}
+        run: squelch publish

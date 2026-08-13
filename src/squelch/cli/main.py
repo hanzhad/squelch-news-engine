@@ -492,5 +492,55 @@ def rebuild_ledger() -> None:
     log.info("ledger rebuilt with %d uids", count)
 
 
+@app.command()
+def schedule(
+    write: Annotated[
+        bool,
+        typer.Option("--write", help="Stamp config/schedule.yaml into the workflow files."),
+    ] = False,
+    check: Annotated[
+        bool,
+        typer.Option("--check", help="Fail if the workflows have drifted or two stages collide."),
+    ] = False,
+) -> None:
+    """Show the cron grid, or push it into .github/workflows/.
+
+    Touches no credentials and no network — it reads `config/schedule.yaml` and
+    rewrites the managed block of each workflow, which is the only way the grid
+    exists in one place at all: GitHub reads a schedule from nowhere but the
+    workflow file itself.
+
+    With neither flag it prints the grid and says nothing about disk. `--check`
+    is what CI runs; `--write` is what you run after editing the config.
+    """
+    setup_logging()
+    from ..core.schedule import SCHEDULE_PATH, grid, load_schedule, problems
+    from ..core.schedule import write as write_
+
+    try:
+        loaded = load_schedule()
+    except Exception as exc:  # noqa: BLE001 - yaml, IO and validation all mean the same thing here
+        log.error("could not load %s: %s", SCHEDULE_PATH, exc)
+        raise typer.Exit(1) from exc
+
+    if write:
+        changed = write_(loaded)
+        log.info("%s", f"updated {len(changed)}: {', '.join(changed)}" if changed else "up to date")
+
+    found = problems(loaded)
+    for line in grid(loaded):
+        print(line)
+    if found:
+        for problem in found:
+            log.error("%s", problem)
+        # Only --check is allowed to go red. Printing the grid on a repository
+        # that has drifted is exactly when you most want to see it, and a bare
+        # `squelch schedule` is a thing you run to look rather than to gate.
+        if check:
+            raise typer.Exit(1)
+    elif check:
+        log.info("schedule is consistent: %d workflows, no collisions", len(loaded.stages))
+
+
 if __name__ == "__main__":
     app()

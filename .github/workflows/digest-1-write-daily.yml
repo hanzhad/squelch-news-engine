@@ -1,16 +1,18 @@
-name: digest-daily
+name: digest / 1 write daily
 
 # The morning roundup, into the same channel as the weekly one. Its own
-# workflow rather than a second cron on digest.yml: two schedules in one file
-# would have to work out which of them fired before it could pick a period, and
-# a daily that can be re-run by hand without also re-running the week is worth
-# the duplicated forty lines.
+# workflow rather than a second cron on digest-1-write-weekly.yml: two schedules
+# in one file would have to work out which of them fired before they could pick a
+# period, and a daily that can be re-run by hand without also re-running the week
+# is worth the duplicated forty lines.
 
 on:
   schedule:
-    # 06:00 UTC daily, over the day that just ended. Well clear of the weekly's
-    # Monday slot, so a reader never gets both in the same minute.
+    # schedule:begin — generated from config/schedule.yaml; edit there, `make schedule`
+    # 06:00 UTC, over the day that just ended. Well clear of the weekly's Monday slot, so a reader
+    # never gets both in the same minute. Writes into an issue and stops; digest-2-publish posts it.
     - cron: "0 6 * * *"
+    # schedule:end
   workflow_dispatch:
     inputs:
       model:
@@ -33,7 +35,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: digest-daily
+  group: digest-write-daily
   cancel-in-progress: false
 
 jobs:
@@ -43,15 +45,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
+      - uses: ./.github/actions/setup-squelch
 
-      - name: Install
-        run: pip install -e .
-
-      # Writes the roundup into an issue and stops there; publish-digest.yml
+      # Writes the roundup into an issue and stops there; digest-2-publish.yml
       # posts it. Running this twice in a day is safe — the second run finds
       # today's roundup already waiting and writes nothing.
       - name: Daily digest
